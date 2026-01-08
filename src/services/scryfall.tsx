@@ -81,6 +81,11 @@ export async function fetchCard(
 	let [frCards, enCards]: [any, any] = await Promise.all([
 		fetch(
 			`https://api.scryfall.com/cards/search/?q=((!"${title}" lang:${lang}) or ("${title}" t:token)) -t:card order:released direction:asc`,
+			{
+				headers: {
+					Origin: window.location.href
+				}
+			}
 		).catch((e) => {
 			console.error(e);
 			throw new CardError(
@@ -90,6 +95,11 @@ export async function fetchCard(
 		}),
 		fetch(
 			`https://api.scryfall.com/cards/search/?q=((!"${title}") or ("${title}" t:token)) -t:card order:released direction:asc`,
+			{
+				headers: {
+					Origin: window.location.href
+				}
+			}
 		).catch((e) => {
 			console.error(e);
 			throw new CardError(
@@ -222,6 +232,12 @@ export async function fetchCard(
 export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 	const response = await fetch(
 		`https://api.scryfall.com/cards/search/?q=!"${title}" unique:art prefer:newest`,
+		{
+			headers: {
+				Origin: window.location.href
+			}
+		}
+
 	).then((r) => r.json() as any);
 
 	return response.data
@@ -275,6 +291,11 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 export async function fetchCardType(name: string): Promise<string> {
 	const response = await fetch(
 		`https://api.scryfall.com/cards/search/?q=!"${name}"`,
+		{
+			headers: {
+				Origin: window.location.href
+			}
+		}
 	).then((r) => r.json() as any);
 
 	const [card] = response.data ?? [];
