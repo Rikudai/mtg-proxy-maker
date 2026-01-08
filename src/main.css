@@ -16,25 +16,30 @@
 	font-family: "Beleren Small Caps";
 	src: url("/assets/fonts/Beleren Small Caps.ttf");
 }
+
 @font-face {
 	font-family: "Beleren";
 	font-weight: bold;
 	src: url("/assets/fonts/Beleren-Bold.ttf");
 }
+
 @font-face {
 	font-family: "MPlantin";
 	font-weight: bold;
 	src: url("/assets/fonts/MPlantin-Bold.ttf");
 }
+
 @font-face {
 	font-family: "MPlantin";
 	font-style: italic;
 	src: url("/assets/fonts/MPlantin Italic.ttf");
 }
+
 @font-face {
 	font-family: "MPlantin";
 	src: url("/assets/fonts/Mplantin.woff");
 }
+
 @font-face {
 	font-family: "Prompt";
 	font-weight: 100;
@@ -55,20 +60,19 @@ body {
 		width: fit-content;
 		grid-gap: var(--card-margin);
 		display: grid;
-		grid-template-columns: repeat(
-			3,
-			auto
-		);
+		grid-template-columns: repeat(3, auto);
 	}
 }
 
 @media print {
+
 	html,
 	body {
 		background-color: white !important;
 	}
 
-	main, .pages {
+	main,
+	.pages {
 		width: var(--page-width);
 		height: var(--page-height);
 	}
@@ -88,14 +92,8 @@ body {
 		display: grid;
 		width: fit-content;
 		height: fit-content;
-		grid-template-columns: repeat(
-			3,
-			1fr
-		);
-		grid-template-rows: repeat(
-			3,
-			auto
-		);
+		grid-template-columns: repeat(3, 1fr);
+		grid-template-rows: repeat(3, auto);
 		grid-gap: var(--card-margin);
 	}
 }

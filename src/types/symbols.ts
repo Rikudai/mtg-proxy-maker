@@ -27,12 +27,20 @@ import seven from "../assets/images/card-symbols/7.svg";
 import eight from "../assets/images/card-symbols/8.svg";
 import nine from "../assets/images/card-symbols/9.svg";
 import A from "../assets/images/card-symbols/A.svg";
+import Action from "../assets/images/card-symbols/Action.svg";
 import B from "../assets/images/card-symbols/B.svg";
 import BG from "../assets/images/card-symbols/BG.svg";
+import BonusAction from "../assets/images/card-symbols/BonusAction.svg";
 import BP from "../assets/images/card-symbols/BP.svg";
 import BR from "../assets/images/card-symbols/BR.svg";
 import C from "../assets/images/card-symbols/C.svg";
 import CHAOS from "../assets/images/card-symbols/CHAOS.svg";
+import D10 from "../assets/images/card-symbols/D10.png";
+import D12 from "../assets/images/card-symbols/D12.png";
+import D20 from "../assets/images/card-symbols/D20.png";
+import D4 from "../assets/images/card-symbols/D4.png";
+import D6 from "../assets/images/card-symbols/D6.png";
+import D8 from "../assets/images/card-symbols/D8.png";
 import E from "../assets/images/card-symbols/E.svg";
 import G from "../assets/images/card-symbols/G.svg";
 import GP from "../assets/images/card-symbols/GP.svg";
@@ -48,6 +56,7 @@ import PB from "../assets/images/card-symbols/PB.svg";
 import PW from "../assets/images/card-symbols/PW.svg";
 import Q from "../assets/images/card-symbols/Q.svg";
 import R from "../assets/images/card-symbols/R.svg";
+import Reaction from "../assets/images/card-symbols/Reaction.svg";
 import RG from "../assets/images/card-symbols/RG.svg";
 import RP from "../assets/images/card-symbols/RP.svg";
 import RW from "../assets/images/card-symbols/RW.svg";
@@ -64,92 +73,83 @@ import WU from "../assets/images/card-symbols/WU.svg";
 import X from "../assets/images/card-symbols/X.svg";
 import Y from "../assets/images/card-symbols/Y.svg";
 import Z from "../assets/images/card-symbols/Z.svg";
-import Action from "../assets/images/card-symbols/Action.svg";
-import BonusAction from "../assets/images/card-symbols/BonusAction.svg";
-import Reaction from "../assets/images/card-symbols/Reaction.svg";
-import D4 from "../assets/images/card-symbols/D4.png";
-import D6 from "../assets/images/card-symbols/D6.png";
-import D8 from "../assets/images/card-symbols/D8.png";
-import D10 from "../assets/images/card-symbols/D10.png";
-import D12 from "../assets/images/card-symbols/D12.png";
-import D20 from "../assets/images/card-symbols/D20.png";
 
 export const symbols = {
-  0: zero,
-  1: one,
-  2: two,
-  3: three,
-  4: four,
-  5: five,
-  6: six,
-  7: seven,
-  8: eight,
-  9: nine,
-  10: ten,
-  11: eleven,
-  12: twelve,
-  13: thirteen,
-  14: fourteen,
-  15: fifteen,
-  16: sixteen,
-  17: seventeen,
-  18: eighteen,
-  19: nineteen,
-  20: twenty,
-  100: hundred,
-  1000000: million,
-  A,
-  Action,
-  B,
-  BonusAction,
-  BG,
-  BP,
-  C,
-  CHAOS,
-  E,
-  GP,
-  GU,
-  GW,
-  HALF,
-  HR,
-  HW,
-  INFINITY,
-  L,
-  P,
-  PB,
-  PW,
-  Q,
-  R,
-  RG,
-  RP,
-  RW,
-  S,
-  T,
-  U,
-  UB,
-  UP,
-  W,
-  WB,
-  WU,
-  X,
-  Y,
-  Z,
-  BR,
-  G,
-  UR,
-  WP,
-  Reaction,
-  "2B": twoB,
-  "2G": twoG,
-  "2R": twoR,
-  "2U": twoU,
-  "2W": twoW,
-  "D4": D4,
-  "D6": D6,
-  "D8": D8,
-  "D10": D10,
-  "D12": D12,
-  "D20": D20,
+	0: zero,
+	1: one,
+	2: two,
+	3: three,
+	4: four,
+	5: five,
+	6: six,
+	7: seven,
+	8: eight,
+	9: nine,
+	10: ten,
+	11: eleven,
+	12: twelve,
+	13: thirteen,
+	14: fourteen,
+	15: fifteen,
+	16: sixteen,
+	17: seventeen,
+	18: eighteen,
+	19: nineteen,
+	20: twenty,
+	100: hundred,
+	1000000: million,
+	A,
+	Action,
+	B,
+	BonusAction,
+	BG,
+	BP,
+	C,
+	CHAOS,
+	E,
+	GP,
+	GU,
+	GW,
+	HALF,
+	HR,
+	HW,
+	INFINITY,
+	L,
+	P,
+	PB,
+	PW,
+	Q,
+	R,
+	RG,
+	RP,
+	RW,
+	S,
+	T,
+	U,
+	UB,
+	UP,
+	W,
+	WB,
+	WU,
+	X,
+	Y,
+	Z,
+	BR,
+	G,
+	UR,
+	WP,
+	Reaction,
+	"2B": twoB,
+	"2G": twoG,
+	"2R": twoR,
+	"2U": twoU,
+	"2W": twoW,
+	D4: D4,
+	D6: D6,
+	D8: D8,
+	D10: D10,
+	D12: D12,
+	D20: D20,
 } as const;
 
 export type GameSymbol = keyof typeof symbols;

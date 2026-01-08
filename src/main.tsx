@@ -5,5 +5,5 @@ import "./main.css";
 import App from "./app";
 
 render(() => {
-  return <App />;
+	return <App />;
 }, document.getElementById("root")!);

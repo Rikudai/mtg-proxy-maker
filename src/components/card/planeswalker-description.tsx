@@ -1,5 +1,5 @@
 import { JSX } from "solid-js/jsx-runtime";
-import { P, match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { symbols } from "../../types/symbols";
 
 type PlaneswalkerDescriptionProps = {
@@ -39,7 +39,7 @@ function PlaneswalkerCost({ cost }: { cost: string }) {
 				[
 					`assets/images/planeswalker-items/Minus.svg`,
 					{ "margin-top": "0.5mm" },
-				] as const
+				] as const,
 		)
 		.with(
 			"+",
@@ -47,7 +47,7 @@ function PlaneswalkerCost({ cost }: { cost: string }) {
 				[
 					`assets/images/planeswalker-items/Plus.svg`,
 					{ "margin-top": "1mm" },
-				] as const
+				] as const,
 		)
 		.otherwise(
 			() =>
@@ -56,7 +56,7 @@ function PlaneswalkerCost({ cost }: { cost: string }) {
 					{
 						"margin-top": "0.5mm",
 					},
-				] as const
+				] as const,
 		);
 
 	return (
@@ -92,30 +92,30 @@ function PlaneswalkerCost({ cost }: { cost: string }) {
 }
 
 export default function PlaneswalkerDescription(
-	props: PlaneswalkerDescriptionProps
+	props: PlaneswalkerDescriptionProps,
 ) {
 	const fontSize = match(
-		props.oracle.split("\n").reduce((a, b) => Math.max(a, b.length), 0)
+		props.oracle.split("\n").reduce((a, b) => Math.max(a, b.length), 0),
 	)
 		.with(
 			P.when((maxLength) => maxLength < 50),
-			() => "7pt"
+			() => "7pt",
 		)
 		.with(
 			P.when((maxLength) => maxLength < 100),
-			() => "6.5pt"
+			() => "6.5pt",
 		)
 		.with(
 			P.when((maxLength) => maxLength < 150),
-			() => "5.8pt"
+			() => "5.8pt",
 		)
 		.with(
 			P.when((maxLength) => maxLength < 200),
-			() => "5.5pt"
+			() => "5.5pt",
 		)
 		.with(
 			P.when((maxLength) => maxLength < 250),
-			() => "5.3pt"
+			() => "5.3pt",
 		)
 		.otherwise(() => "5pt");
 
@@ -128,9 +128,8 @@ export default function PlaneswalkerDescription(
 				return [
 					<PlaneswalkerCost cost={splitted[1]} />,
 					<p
-						class={`m-0 pl-2.5 pr-1 flex items-center last:pb-1 ${
-							i % 2 == 0 ? "bg-gray-50/70" : "bg-gray-200/70"
-						}`}
+						class={`m-0 pl-2.5 pr-1 flex items-center last:pb-1 ${i % 2 == 0 ? "bg-gray-50/70" : "bg-gray-200/70"
+							}`}
 						style={{
 							"font-size": fontSize,
 						}}
@@ -142,9 +141,8 @@ export default function PlaneswalkerDescription(
 				return [
 					<div></div>,
 					<p
-						class={`m-0 pl-1 pr-1 flex items-center ${
-							i % 2 == 0 ? "bg-gray-50/70" : "bg-gray-200/70"
-						}`}
+						class={`m-0 pl-1 pr-1 flex items-center ${i % 2 == 0 ? "bg-gray-50/70" : "bg-gray-200/70"
+							}`}
 						style={{
 							"font-size": fontSize,
 						}}
