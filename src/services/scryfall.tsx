@@ -52,6 +52,137 @@ export function manaLetterToType(manaLetter: string): ManaType | ManaType[] {
 	}
 }
 
+const MTG_TERMS_PT: Record<string, string> = {
+	"Battlefield": "Campo de Batalha",
+	"Graveyard": "Cemitério",
+	"Library": "Grimório",
+	"Hand": "Mão",
+	"Mana pool": "Reserva de mana",
+	"Token": "Ficha",
+	"Tokens": "Fichas",
+	"Planeswalker": "Planeswalker",
+	"Spell": "Mágica",
+	"loyalty counter": "marcador de lealdade",
+	"charge counter": "marcador de carga",
+	"+1/+1 counter": "marcador +1/+1",
+	"-1/-1 counter": "marcador -1/-1",
+	"Deathtouch": "Toque Mortal",
+	"Defender": "Defensor",
+	"Double Strike": "Golpe Duplo",
+	"Enchant": "Encantar",
+	"Equip": "Equipar",
+	"First Strike": "Iniciativa",
+	"Flash": "Lampejo",
+	"Flying": "Voar",
+	"Haste": "Ímpeto",
+	"Hexproof": "Resistência a Magia",
+	"Indestructible": "Indestrutível",
+	"Lifelink": "Vínculo com a Vida",
+	"Menace": "Ameaçar",
+	"Reach": "Alcance",
+	"Shroud": "Manto",
+	"Trample": "Atropelar",
+	"Vigilance": "Vigilância",
+	"Ward": "Salvaguarda",
+	"Affinity": "Afinidade",
+	"Amass": "Arregimentar",
+	"Cascade": "Cascata",
+	"Companion": "Companheiro",
+	"Convoke": "Convocação",
+	"Crew": "Tripular",
+	"Cycling": "Reciclar",
+	"Dash": "Investida",
+	"Delve": "Esquadrinhar",
+	"Discover": "Descobrir",
+	"Dredge": "Escavar",
+	"Echo": "Eco",
+	"Evolve": "Evoluir",
+	"Exalted": "Exaltado",
+	"Fearsome": "Assustador",
+	"Flanking": "Flanquear",
+	"Flashback": "Recapitular",
+	"Incubate": "Incubar",
+	"Infect": "Infectar",
+	"Investigate": "Investigar",
+	"Kicker": "Reforço",
+	"Madness": "Loucura",
+	"Mill": "Triturar",
+	"Mutate": "Mutação",
+	"Ninjutsu": "Ninjutsu",
+	"Partner": "Parceiro",
+	"Phasing": "Fase",
+	"Populate": "Povoar",
+	"Proliferate": "Proliferar",
+	"Prowess": "Destreza",
+	"Riot": "Tumulto",
+	"Scavenge": "Necrofagia",
+	"Scry": "Vidência",
+	"Shadow": "Sombra",
+	"Splice": "Unir",
+	"Split Second": "Fração de Segundo",
+	"Storm": "Rajada",
+	"Surveil": "Vigiar",
+	"Suspend": "Suspender",
+	"Transmute": "Transmutar",
+	"Unearth": "Desenterrar",
+	"Undying": "Imortal",
+	"Wither": "Murchar",
+};
+
+const MTG_TERMS_KEYS = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
+
+function prepareMtgText(text: string, lang: string): { preparedText: string; placeholders: string[] } {
+	if (lang !== 'pt') return { preparedText: text, placeholders: [] };
+
+	let preparedText = text;
+	const placeholders: string[] = [];
+
+	for (const term of MTG_TERMS_KEYS) {
+		const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const startBoundary = /^\w/.test(term) ? '\\b' : '';
+		const endBoundary = /\w$/.test(term) ? '\\b' : '';
+		
+		const regex = new RegExp(`${startBoundary}${escapedTerm}${endBoundary}`, 'gi');
+		preparedText = preparedText.replace(regex, (match) => {
+			const isFirstUpper = match[0] === match[0].toUpperCase();
+			let translation = MTG_TERMS_PT[term];
+			if (!isFirstUpper) {
+				translation = translation.toLowerCase();
+			}
+			const placeholderStr = `_P${placeholders.length}_`;
+			placeholders.push(translation);
+			return placeholderStr;
+		});
+	}
+	return { preparedText, placeholders };
+}
+
+function restoreMtgText(translatedText: string, placeholders: string[]): string {
+	let restored = translatedText;
+	for (let i = 0; i < placeholders.length; i++) {
+		const regex = new RegExp(`_\\s*P${i}\\s*_`, 'gi');
+		restored = restored.replace(regex, placeholders[i]);
+	}
+	return restored;
+}
+
+async function translateGoogle(text: string, targetLang: string): Promise<string> {
+	if (!text) return text;
+	try {
+		const { preparedText, placeholders } = prepareMtgText(text, targetLang);
+		const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${targetLang}&dt=t&q=${encodeURIComponent(preparedText)}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error("Translation request failed");
+		const json = (await res.json()) as any[];
+		let translatedText = json?.[0]?.map((x: any) => x?.[0] || '')?.join('') || preparedText;
+		
+		return restoreMtgText(translatedText, placeholders);
+	} catch (e) {
+		console.error("Translation failed", e);
+		return text;
+	}
+}
+
 function needScan(scryfallResult: any) {
 	return ['Stickers', 'Dungeon'].includes(scryfallResult['type_line']) || ['split', 'modal_dfc', 'adventure', 'planar', 'host', 'class', 'saga', 'flip'].includes(scryfallResult['layout'])
 }
@@ -109,6 +240,8 @@ export async function fetchCard(
 		}),
 	]).then(([fr, en]) => Promise.all([fr.json(), en.json()]));
 
+	const frCardsStatus = frCards.status;
+
 	if (enCards.status == 404) {
 		throw new CardError(
 			title,
@@ -152,8 +285,36 @@ export async function fetchCard(
 	console.debug('en', enCardFaceInfo)
 	console.debug('fr', frCardFaceInfo)
 
-	const card: Card = {
+	let primaryText = {
 		title: frCardFaceInfo["printed_name"] || frCardFaceInfo["name"],
+		typeText: frCardFaceInfo["printed_type_line"] || frCardFaceInfo["type_line"] || enCardFaceInfo["printed_type_line"] || enCardFaceInfo["type_line"],
+		oracleText: frCardFaceInfo["printed_text"] || frCardFaceInfo["oracle_text"],
+		flavorText: frCardFaceInfo["flavor_text"]
+	};
+
+	let reverseText = biFaced ? {
+		title: frReverseFaceInfo["printed_name"] || frReverseFaceInfo["name"],
+		typeText: frReverseFaceInfo["printed_type_line"] || frReverseFaceInfo["type_line"] || enReverseFaceInfo["printed_type_line"] || enReverseFaceInfo["type_line"],
+		oracleText: frReverseFaceInfo["printed_text"] || frReverseFaceInfo["oracle_text"],
+		flavorText: frReverseFaceInfo["flavor_text"]
+	} : null;
+
+	if (frCardsStatus === 404 && lang !== "en") {
+		primaryText.title = await translateGoogle(primaryText.title, lang);
+		primaryText.typeText = await translateGoogle(primaryText.typeText, lang);
+		primaryText.oracleText = await translateGoogle(primaryText.oracleText, lang);
+		primaryText.flavorText = await translateGoogle(primaryText.flavorText, lang);
+
+		if (reverseText) {
+			reverseText.title = await translateGoogle(reverseText.title, lang);
+			reverseText.typeText = await translateGoogle(reverseText.typeText, lang);
+			reverseText.oracleText = await translateGoogle(reverseText.oracleText, lang);
+			reverseText.flavorText = await translateGoogle(reverseText.flavorText, lang);
+		}
+	}
+
+	const card: Card = {
+		title: primaryText.title,
 		manaCost,
 		artUrl: enCardFaceInfo["image_uris"]?.["art_crop"],
 		totalVariants: variants.length,
@@ -171,9 +332,9 @@ export async function fetchCard(
 				en["frame_effects"]?.includes("legendary") ||
 				enCardFaceInfo["type_line"].toLowerCase().includes("legendary"),
 		},
-		typeText: frCardFaceInfo["printed_type_line"] || frCardFaceInfo["type_line"] || enCardFaceInfo["printed_type_line"] || enCardFaceInfo["type_line"],
-		oracleText: frCardFaceInfo["printed_text"] || frCardFaceInfo["oracle_text"],
-		flavorText: frCardFaceInfo["flavor_text"],
+		typeText: primaryText.typeText,
+		oracleText: primaryText.oracleText,
+		flavorText: primaryText.flavorText,
 		power: frCardFaceInfo["power"],
 		toughness: frCardFaceInfo["toughness"],
 		artist: frCardFaceInfo["artist"],
@@ -190,7 +351,7 @@ export async function fetchCard(
 
 	return {
 		verso: biFaced ? {
-			title: frReverseFaceInfo["printed_name"] || frReverseFaceInfo["name"],
+			title: reverseText!.title,
 			manaCost,
 			artUrl: enReverseFaceInfo["image_uris"]?.["art_crop"],
 			totalVariants: variants.length,
@@ -208,9 +369,9 @@ export async function fetchCard(
 					en["frame_effects"]?.includes("legendary") ||
 					enReverseFaceInfo["type_line"].toLowerCase().includes("legendary"),
 			},
-			typeText: frReverseFaceInfo["printed_type_line"] || frReverseFaceInfo["type_line"] || enReverseFaceInfo["printed_type_line"] || enReverseFaceInfo["type_line"],
-			oracleText: frReverseFaceInfo["printed_text"] || frReverseFaceInfo["oracle_text"],
-			flavorText: frReverseFaceInfo["flavor_text"],
+			typeText: reverseText!.typeText,
+			oracleText: reverseText!.oracleText,
+			flavorText: reverseText!.flavorText,
 			power: frReverseFaceInfo["power"],
 			toughness: frReverseFaceInfo["toughness"],
 			artist: frReverseFaceInfo["artist"],
