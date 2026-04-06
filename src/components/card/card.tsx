@@ -12,6 +12,7 @@ import TypeBar from "./type-bar";
 
 export default function CardComponent(props: {
 	card: Card;
+	id?: string;
 	onClick?: () => void;
 	selected?: boolean;
 }) {
@@ -21,8 +22,10 @@ export default function CardComponent(props: {
 	return (
 		<div
 			tabIndex={0}
+			id={props.id}
+			data-name={props.card.title}
 			onClick={props.onClick}
-			class="rounded-xl print:rounded-none group outline !focus:outline outline-amber-500 print:outline-none"
+			class="rounded-xl print:rounded-none group outline !focus:outline outline-amber-500 print:outline-none card-export-target"
 			style={{
 				position: "relative",
 				display: "flex",

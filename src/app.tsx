@@ -1,7 +1,7 @@
 import {
 	createEffect,
 	createResource,
-	createSignal, For,
+	createSignal, For, untrack,
 	Show
 } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -12,7 +12,10 @@ import Sidebar from "./components/sidebar";
 import { parseMtgo } from "./services/mtgo-parser";
 import { fetchCard } from "./services/scryfall";
 import { Card, getEmptyCard } from "./types/card";
-import { Toaster } from "solid-toast";
+import toast, { Toaster } from "solid-toast";
+import { toPng } from 'html-to-image';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { CardError } from "./types/error";
 import { toastError } from "./services/toaster";
 
@@ -141,8 +144,52 @@ export default function App() {
 
 	createEffect(function updateCardsLang() {
 		const lang = language();
-		setCardList((prev) => prev.map((c) => ({ ...c, language: lang })));
+		const val = untrack(() => cardList().value);
+		const clonedList = JSON.parse(JSON.stringify(val)) as Card[];
+		setCardList(clonedList.map((c: any) => ({ ...c, language: lang })));
 	});
+
+	async function extractZip() {
+		try {
+			const zip = new JSZip();
+			const elements = document.querySelectorAll('.card-export-target');
+			if (elements.length === 0) {
+				toast.error("Nenhuma carta no painel para exportar.");
+				return;
+			}
+
+			const toastId = toast.loading("Gerando imagens e comprimindo ZIP... Por favor, aguarde.");
+			const nameCounts: Record<string, number> = {};
+
+			for (let i = 0; i < elements.length; i++) {
+				const node = elements[i] as HTMLElement;
+				// Pula a checagem manual quebrado de CORS no cache e adiciona cacheBust para que o html-to-image baixe de novo as scryfall imagens.
+				const blob = await toPng(node, { pixelRatio: 2, cacheBust: true });
+				const base64Data = blob.replace(/^data:image\/png;base64,/, "");
+
+				const baseName = node.dataset.name || "Card";
+				nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
+				
+				const uniqueName = nameCounts[baseName] === 1 
+					? baseName 
+					: `${baseName} ${String(nameCounts[baseName] - 1).padStart(2, '0')}`;
+				
+				const safeName = uniqueName.replace(/[<>:"/\\|?*]+/g, '_');
+
+				zip.file(`${safeName}.png`, base64Data, { base64: true });
+			}
+
+			const content = await zip.generateAsync({ type: 'blob' });
+			saveAs(content, "mtg-proxies.zip");
+			
+			toast.dismiss(toastId);
+			toast.success("Download do pacote ZIP concluído!");
+		} catch (error) {
+			console.error("Failed to generate zip", error);
+			toast.dismiss();
+			toast.error("Desculpe, ocorreu um erro ao gerar o arquivo ZIP.");
+		}
+	}
 
 	return (
 		<main class="md:grid md:grid-rows-none md:grid-cols-[1fr_50rem_1fr] md:h-screen font-serif print:!block print:overflow-visible">
@@ -162,6 +209,7 @@ export default function App() {
 					setCardList(newList);
 					setSelectedCardIndex(null);
 				}}
+				onDownloadZip={extractZip}
 			/>
 			<div class="relative p-5 print:p-0 h-full overflow-y-auto bg-stone-700 print:bg-white print:overflow-visible pages">
 				<div class="card-grid print:m-auto">
@@ -171,6 +219,7 @@ export default function App() {
 								<div>
 									{[0, 1, 2].includes(j() % 9) && <div class="print:mt-5" />}
 									<CardComponent
+										id={`card-export-${j()}`}
 										card={card}
 										onClick={() => {
 											setSelectedCardIndex(j());

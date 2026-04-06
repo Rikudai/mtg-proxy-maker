@@ -10,6 +10,7 @@ type SidebarProps = {
 	onAddCard: (cardName: string) => void;
 	onClearList: () => void;
 	onRawListImport: (rawCardList: string) => void;
+	onDownloadZip?: () => Promise<void>;
 };
 
 const deckExample = `
@@ -93,6 +94,7 @@ const deckExample = `
 
 export default function Sidebar(props: SidebarProps) {
 	const [rawCardListDialogOpen, setRawCardListDialogOpen] = createSignal(false);
+	const [isDownloading, setIsDownloading] = createSignal(false);
 
 	return (
 		<>
@@ -145,6 +147,28 @@ export default function Sidebar(props: SidebarProps) {
 						}}
 					>
 						Print all cards
+					</button>
+
+					<button
+						type="button"
+						class="btn btn-primary w-full"
+						disabled={isDownloading() || !props.onDownloadZip}
+						onClick={async () => {
+							if (props.onDownloadZip) {
+								setIsDownloading(true);
+								try {
+									await props.onDownloadZip();
+								} finally {
+									setIsDownloading(false);
+								}
+							}
+						}}
+					>
+						{isDownloading() ? (
+							<span class="loading loading-spinner loading-md bg-white"></span>
+						) : (
+							"Download ZIP (PNGs)"
+						)}
 					</button>
 
 					<div class="form-control">
