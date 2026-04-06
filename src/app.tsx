@@ -62,6 +62,7 @@ export default function App() {
 	const [printVersos, setPrintVersos] = createSignal(
 		localStorage.getItem("printVersos") == "true",
 	);
+	const [isMTGOImporting, setIsMTGOImporting] = createSignal(false);
 
 	const [cardList, setCardList] = createResourceStore<Card[]>([], () =>
 		getCardList(),
@@ -81,9 +82,9 @@ export default function App() {
 		setCardList(selectedCardIndex()!, fn(selectedCard()!));
 	};
 
-	async function fetchAndAddCard(name: string) {
+	async function fetchAndAddCard(name: string, variant: number = 0) {
 		try {
-			const fetchedCard = await fetchCard(name, language());
+			const fetchedCard = await fetchCard(name, language(), variant);
 
 			setCardList((prev) => [...prev, fetchedCard]);
 		} catch (e) {
@@ -204,10 +205,16 @@ export default function App() {
 				printVersos={printVersos()}
 				setPrintVersos={setPrintVersos}
 				onAddCard={fetchAndAddCard}
+				isMTGOImporting={isMTGOImporting()}
 				onRawListImport={async (rawList) => {
-					const newList = await getNewListFromMTGO(rawList);
-					setCardList(newList);
-					setSelectedCardIndex(null);
+					setIsMTGOImporting(true);
+					try {
+						const newList = await getNewListFromMTGO(rawList);
+						setCardList(newList);
+						setSelectedCardIndex(null);
+					} finally {
+						setIsMTGOImporting(false);
+					}
 				}}
 				onDownloadZip={extractZip}
 			/>

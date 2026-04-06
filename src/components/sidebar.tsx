@@ -1,16 +1,19 @@
-import { createSignal, Setter } from "solid-js";
+import { createSignal, Setter, For, Show } from "solid-js";
 import InfoTab from "./info-tab";
 import ScryfallSearchBox from "./scryfall-searchbox";
+import { fetchVariants } from "../services/scryfall";
+import { Card } from "../types/card";
 
 type SidebarProps = {
 	language: string;
 	setLanguage: Setter<string>;
 	printVersos: boolean;
 	setPrintVersos: Setter<boolean>;
-	onAddCard: (cardName: string) => void;
+	onAddCard: (cardName: string, variant?: number) => void;
 	onClearList: () => void;
 	onRawListImport: (rawCardList: string) => void;
 	onDownloadZip?: () => Promise<void>;
+	isMTGOImporting?: boolean;
 };
 
 const deckExample = `
@@ -95,6 +98,26 @@ const deckExample = `
 export default function Sidebar(props: SidebarProps) {
 	const [rawCardListDialogOpen, setRawCardListDialogOpen] = createSignal(false);
 	const [isDownloading, setIsDownloading] = createSignal(false);
+	const [variantsModalOpen, setVariantsModalOpen] = createSignal(false);
+	const [variants, setVariants] = createSignal<Partial<Card>[]>([]);
+	const [selectedCardName, setSelectedCardName] = createSignal("");
+	const [isLoadingVariants, setIsLoadingVariants] = createSignal(false);
+
+	const handleAddCardClick = async (name: string) => {
+		setSelectedCardName(name);
+		setIsLoadingVariants(true);
+		setVariantsModalOpen(true);
+		try {
+			const fetchedVariants = await fetchVariants(name);
+			setVariants(fetchedVariants);
+		} catch (e) {
+			console.error(e);
+			props.onAddCard(name); // Fallback to default if variants fail
+			setVariantsModalOpen(false);
+		} finally {
+			setIsLoadingVariants(false);
+		}
+	};
 
 	return (
 		<>
@@ -124,13 +147,18 @@ export default function Sidebar(props: SidebarProps) {
 							<option value="ph">Phyrexian</option>
 						</select>
 					</label>
-					<ScryfallSearchBox onAddCard={({ name }) => props.onAddCard(name)} />
+					<ScryfallSearchBox onAddCard={({ name }) => handleAddCardClick(name)} />
 					<button
 						type="button"
 						class="btn btn-secondary w-full"
+						disabled={props.isMTGOImporting}
 						onClick={() => setRawCardListDialogOpen(true)}
 					>
-						Import from MTGO
+						{props.isMTGOImporting ? (
+							<span class="loading loading-spinner loading-sm"></span>
+						) : (
+							"Import from MTGO"
+						)}
 					</button>
 					<button
 						type="button"
@@ -225,6 +253,43 @@ export default function Sidebar(props: SidebarProps) {
 							<button type="submit" class="btn btn-primary flex-1">Submit</button>
 						</div>
 					</div>
+				</form>
+			</dialog>
+			<dialog
+				class="z-30 modal modal-bottom sm:modal-middle"
+				open={variantsModalOpen()}
+			>
+				<div class="modal-box bg-stone-700 max-w-4xl">
+					<h3 class="font-bold text-lg text-white mb-4">Select Art: {selectedCardName()}</h3>
+					<Show when={isLoadingVariants()}>
+						<div class="flex justify-center p-10">
+							<span class="loading loading-spinner loading-lg text-primary"></span>
+						</div>
+					</Show>
+					<div class="grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto max-h-[70vh]">
+						<For each={variants()}>
+							{(variant, index) => (
+								<button
+									class="hover:ring-4 hover:ring-primary rounded-lg overflow-hidden transition-all"
+									onClick={() => {
+										props.onAddCard(selectedCardName(), index());
+										setVariantsModalOpen(false);
+									}}
+								>
+									<img src={variant.artUrl} alt={`Variant ${index()}`} class="w-full h-auto" />
+									<div class="bg-black/50 text-white text-xs p-1 text-center">
+										{variant.set?.toUpperCase()} - {variant.rarity}
+									</div>
+								</button>
+							)}
+						</For>
+					</div>
+					<div class="modal-action">
+						<button class="btn" onClick={() => setVariantsModalOpen(false)}>Cancel</button>
+					</div>
+				</div>
+				<form method="dialog" class="modal-backdrop bg-black/70" onClick={() => setVariantsModalOpen(false)}>
+					<button>close</button>
 				</form>
 			</dialog>
 		</>
