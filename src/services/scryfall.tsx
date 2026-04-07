@@ -325,12 +325,15 @@ export async function fetchCard(
 		flavorText: frReverseFaceInfo["flavor_text"]
 	} : null;
 
-	if (frCardsStatus === 404 && lang !== "en") {
+	const targetLang = lang.startsWith("pt") ? "pt" : lang;
+	const needsTranslation = lang !== "en" && (frCardsStatus === 404 || frCardFaceInfo["lang"] === "en");
+	
+	if (needsTranslation) {
 		primaryText.title = await translateGoogle(primaryText.title, lang);
 		primaryText.typeText = await translateGoogle(primaryText.typeText, lang);
 		primaryText.oracleText = await translateGoogle(primaryText.oracleText, lang);
 		primaryText.flavorText = await translateGoogle(primaryText.flavorText, lang);
-
+		
 		if (reverseText) {
 			reverseText.title = await translateGoogle(reverseText.title, lang);
 			reverseText.typeText = await translateGoogle(reverseText.typeText, lang);
@@ -338,6 +341,8 @@ export async function fetchCard(
 			reverseText.flavorText = await translateGoogle(reverseText.flavorText, lang);
 		}
 	}
+
+	const finalLang = needsTranslation ? lang : fr["lang"];
 
 	const card: Card = {
 		title: primaryText.title,
@@ -360,13 +365,13 @@ export async function fetchCard(
 				enCardFaceInfo["type_line"].toLowerCase().includes("legendary"),
 		},
 		typeText: primaryText.typeText,
-		oracleText: enrichOracleText(primaryText.oracleText, fr["lang"]),
+		oracleText: enrichOracleText(primaryText.oracleText, finalLang),
 		flavorText: primaryText.flavorText,
 		power: frCardFaceInfo["power"],
 		toughness: frCardFaceInfo["toughness"],
 		artist: frCardFaceInfo["artist"],
 		collectorNumber: fr["collector_number"],
-		lang: fr["lang"],
+		lang: finalLang,
 		rarity: fr["rarity"],
 		set: fr["set"],
 		category: enCardFaceInfo["type_line"].toLowerCase().includes("planeswalker")
@@ -398,13 +403,13 @@ export async function fetchCard(
 					enReverseFaceInfo["type_line"].toLowerCase().includes("legendary"),
 			},
 			typeText: reverseText!.typeText,
-			oracleText: enrichOracleText(reverseText!.oracleText, fr["lang"]),
+			oracleText: enrichOracleText(reverseText!.oracleText, finalLang),
 			flavorText: reverseText!.flavorText,
 			power: frReverseFaceInfo["power"],
 			toughness: frReverseFaceInfo["toughness"],
 			artist: frReverseFaceInfo["artist"],
 			collectorNumber: fr["collector_number"],
-			lang: fr["lang"],
+			lang: finalLang,
 			rarity: fr["rarity"],
 			set: fr["set"],
 			category: enReverseFaceInfo["type_line"].toLowerCase().includes("planeswalker")

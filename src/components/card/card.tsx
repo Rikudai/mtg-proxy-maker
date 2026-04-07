@@ -26,12 +26,13 @@ export default function CardComponent(props: {
 			id={props.id}
 			data-name={props.card.title}
 			onClick={props.onClick}
-			class="rounded-xl print:rounded-none group outline !focus:outline outline-amber-500 print:outline-none card-export-target"
+			class="rounded-xl print:rounded-none group outline !focus:outline outline-amber-500 print:outline-none card-export-target text-black"
 			style={{
 				position: "relative",
 				display: "flex",
 				"font-family": "MPlantin",
 				"font-size": "12pt",
+				color: "black",
 				"background-color": "var(--card-bgc, #161410)",
 				height: "auto",
 				width: "var(--card-width)",
