@@ -146,8 +146,40 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Transmute": "Transmutar",
 	"Unearth": "Desenterrar",
 	"Undying": "Imortal",
-	"Wither": "Murchar",
+	"Replicate": "Replicar",
+	"Casualty": "Baixa",
+	"Blitz": "Blitz",
+	"Cleave": "Retalhar",
+	"Daybound": "Vinculado ao Dia",
+	"Nightbound": "Vinculado à Noite",
+	"Learn": "Aprender",
+	"Connive": "Maquinar",
+	"Exert": "Esforçar",
+	"Encore": "Bis",
 };
+
+const ALL_KEYWORDS_PT = Object.values(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
+const ALL_KEYWORDS_EN = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
+
+export function enrichOracleText(text: string, lang: string = "en"): string {
+	if (!text) return text;
+
+	const keywords = lang.toLowerCase().startsWith("pt") ? ALL_KEYWORDS_PT : ALL_KEYWORDS_EN;
+	const wordChars = "a-zA-ZáàâãéèêíïóôõöúçÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ";
+
+	let enriched = text;
+
+	// Replace keywords with *keyword* if they are not already wrapped
+	// We use a regex that avoids double-wrapping
+	for (const keyword of keywords) {
+		const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		// Match keyword not preceded or followed by * or other word characters
+		const regex = new RegExp(`(?<![\\*${wordChars}])${escapedKeyword}(?![\\*${wordChars}])`, "gi");
+		enriched = enriched.replace(regex, (match) => `*${match}*`);
+	}
+
+	return enriched;
+}
 
 const MTG_TERMS_KEYS = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
 
@@ -328,7 +360,7 @@ export async function fetchCard(
 				enCardFaceInfo["type_line"].toLowerCase().includes("legendary"),
 		},
 		typeText: primaryText.typeText,
-		oracleText: primaryText.oracleText,
+		oracleText: enrichOracleText(primaryText.oracleText, fr["lang"]),
 		flavorText: primaryText.flavorText,
 		power: frCardFaceInfo["power"],
 		toughness: frCardFaceInfo["toughness"],
@@ -365,7 +397,7 @@ export async function fetchCard(
 					enReverseFaceInfo["type_line"].toLowerCase().includes("legendary"),
 			},
 			typeText: reverseText!.typeText,
-			oracleText: reverseText!.oracleText,
+			oracleText: enrichOracleText(reverseText!.oracleText, fr["lang"]),
 			flavorText: reverseText!.flavorText,
 			power: frReverseFaceInfo["power"],
 			toughness: frReverseFaceInfo["toughness"],

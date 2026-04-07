@@ -101,3 +101,9 @@ body {
 		grid-gap: var(--card-margin);
 	}
 }
+
+/* Fix for keyword bolding visibility in the site view */
+.card-export-target strong {
+	font-weight: bold !important;
+	font-family: inherit;
+}

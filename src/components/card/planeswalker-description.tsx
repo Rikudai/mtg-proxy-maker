@@ -1,36 +1,12 @@
 import { JSX } from "solid-js";
 import { match } from "ts-pattern";
-import { symbols } from "../../types/symbols";
 import ShrinkToFit from "./shrink-to-fit";
+import { processText } from "../../services/text-processor";
 
 type PlaneswalkerDescriptionProps = {
 	oracle: string;
+	lang?: string;
 };
-
-function injectSymbols(description: string): JSX.Element {
-	return (
-		<>
-			{description.split(/{([^}]+)}/g).map((word) => {
-				if (word in symbols) {
-					return (
-						<img
-							style={{
-								width: "2.5mm",
-								transform: "translateY(2px)",
-								margin: "0 0.1mm",
-								display: "initial",
-								"vertical-align": "initial",
-							}}
-							src={symbols[word as keyof typeof symbols]}
-						/>
-					);
-				} else {
-					return word;
-				}
-			})}
-		</>
-	);
-}
 
 function PlaneswalkerCost({ cost }: { cost: string }) {
 	const [src, style] = match(cost[0])
@@ -110,7 +86,7 @@ export default function PlaneswalkerDescription(
 							"font-size": "inherit",
 						}}
 					>
-						{injectSymbols(splitted[2])}
+						{processText(splitted[2], props.lang)}
 					</p>,
 				];
 			} else {
@@ -123,7 +99,7 @@ export default function PlaneswalkerDescription(
 							"font-size": "inherit",
 						}}
 					>
-						{injectSymbols(splitted[0])}
+						{processText(splitted[0], props.lang)}
 					</p>,
 				];
 			}

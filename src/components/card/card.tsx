@@ -91,10 +91,14 @@ export default function CardComponent(props: {
 						<RegularDescription
 							flavor={props.card.flavorText}
 							oracle={props.card.oracleText}
+							lang={props.card.lang}
 						/>
 					)
 				) : (
-					<PlaneswalkerDescription oracle={props.card.oracleText} />
+					<PlaneswalkerDescription
+						oracle={props.card.oracleText}
+						lang={props.card.lang}
+					/>
 				)}
 				{props.card.category == "Regular" ? (
 					<Show when={!!props.card.power || !!props.card.toughness}>

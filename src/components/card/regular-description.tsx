@@ -1,37 +1,13 @@
 import { JSX } from "solid-js";
 import flavorTextDividerUrl from "../../assets/images/flavor-text-divider.png";
-import { symbols } from "../../types/symbols";
 import ShrinkToFit from "./shrink-to-fit";
+import { processText } from "../../services/text-processor";
 
 type RegularDescriptionProps = {
 	oracle?: string;
 	flavor?: string;
+	lang?: string;
 };
-
-function injectSymbols(description: string): JSX.Element {
-	return (
-		<>
-			{description.split(/{([^}]+)}/g).map((word) => {
-				if (word in symbols) {
-					return (
-						<img
-							style={{
-								width: "2.5mm",
-								transform: "translateY(2px)",
-								margin: "0 0.1mm",
-								display: "initial",
-								"vertical-align": "initial",
-							}}
-							src={symbols[word as keyof typeof symbols]}
-						/>
-					);
-				} else {
-					return word;
-				}
-			})}
-		</>
-	);
-}
 
 export default function RegularDescription(props: RegularDescriptionProps) {
 	return (
@@ -67,7 +43,7 @@ export default function RegularDescription(props: RegularDescriptionProps) {
 								"margin-top": index > 0 ? "1mm" : 0,
 							}}
 						>
-							{injectSymbols(paragraph)}
+							{processText(paragraph, props.lang)}
 						</p>
 					))}
 				</div>

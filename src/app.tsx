@@ -177,7 +177,7 @@ export default function App() {
 			const val = cardList().value;
 			return JSON.parse(JSON.stringify(val)) as Card[];
 		});
-		setCardList(clonedList.map((c: any) => ({ ...c, language: lang })));
+		setCardList(clonedList.map((c: any) => ({ ...c, lang })));
 	});
 
 	async function extractZip() {
