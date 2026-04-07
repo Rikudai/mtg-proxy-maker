@@ -15,6 +15,7 @@ export type Card = {
 	rarity?: string;
 	set?: string;
 	title: string;
+	originalName: string;
 	totalVariants: number;
 	toughness?: string;
 	typeText: string;
@@ -37,6 +38,7 @@ export function getEmptyCard(): Card {
 		manaCost: [],
 		oracleText: "",
 		title: "",
+		originalName: "",
 		typeText: "",
 		aspect: {
 			frame: "Noncreature",

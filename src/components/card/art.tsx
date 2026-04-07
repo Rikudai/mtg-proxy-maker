@@ -4,6 +4,7 @@ import { Card } from "../../types/card";
 type ArtProps = {
 	url: string;
 	category: Card["category"];
+	onArtClick?: () => void;
 };
 
 const style: Record<Card["category"], JSX.CSSProperties> = {
@@ -26,5 +27,5 @@ const style: Record<Card["category"], JSX.CSSProperties> = {
 };
 
 export default function Art(props: ArtProps) {
-	return <img style={style[props.category]} src={props.url} />;
+	return <img style={style[props.category]} src={props.url} onClick={props.onArtClick} />;
 }

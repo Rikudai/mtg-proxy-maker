@@ -4,7 +4,10 @@ import { Card } from "../../types/card";
 import CardComponent from "./card";
 import cardBack from "../../assets/images/card-back.png";
 
-export default function CardVerso(props: { verso: Card["verso"] }) {
+export default function CardVerso(props: { 
+	verso: Card["verso"];
+	onArtClick?: () => void;
+}) {
 	return (
 		<Switch
 			fallback={
@@ -25,7 +28,7 @@ export default function CardVerso(props: { verso: Card["verso"] }) {
 			}
 		>
 			<Match when={props.verso && props.verso == "default"}>
-				<CardVerso verso={defaultVerso() || cardBack} />
+				<CardVerso verso={defaultVerso() || cardBack} onArtClick={props.onArtClick} />
 			</Match>
 
 			<Match when={props.verso && typeof props.verso == "string"}>
@@ -46,11 +49,12 @@ export default function CardVerso(props: { verso: Card["verso"] }) {
 					}}
 					src={props.verso as string}
 					alt=""
+					onClick={props.onArtClick}
 				/>
 			</Match>
 
 			<Match when={props.verso && typeof props.verso == "object"}>
-				<CardComponent card={props.verso as Card} />
+				<CardComponent card={props.verso as Card} onArtClick={props.onArtClick} />
 			</Match>
 		</Switch>
 	);

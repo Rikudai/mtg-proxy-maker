@@ -9,6 +9,8 @@ import { cardColors, cardFrames } from "../types/backgrounds";
 import { Card } from "../types/card";
 import CardComponent from "./card/card";
 import CardVerso from "./card/card-verso";
+import VariantsModal from "./variants-modal";
+import { fetchVariants } from "../services/scryfall";
 
 function ManaInput(props: {
 	value: Card["manaCost"];
@@ -45,6 +47,28 @@ export default function EditCardForm(props: {
 	onDuplicateCard: () => void;
 	onSetCardDefaultVerso: (verso: string) => void;
 }) {
+	const [showBack, setShowBack] = createSignal(false);
+	const [variantsModalOpen, setVariantsModalOpen] = createSignal(false);
+	const [variants, setVariants] = createSignal<Partial<Card>[]>([]);
+	const [isLoadingVariants, setIsLoadingVariants] = createSignal(false);
+
+	const handleArtClick = async () => {
+		if (showBack()) return;
+		const cardName = props.card().originalName || props.card().title;
+		if (!cardName) return;
+
+		setIsLoadingVariants(true);
+		setVariantsModalOpen(true);
+		try {
+			const fetchedVariants = await fetchVariants(cardName);
+			setVariants(fetchedVariants);
+		} catch (e) {
+			console.error(e);
+		} finally {
+			setIsLoadingVariants(false);
+		}
+	};
+
 	return (
 		<main class="bg-stone-500 grid grid-rows-[auto_1fr] h-full">
 			{props.card().overrideWithScanUrl ? (
@@ -55,27 +79,89 @@ export default function EditCardForm(props: {
 				</div>
 			) : null}
 			<section class="relative grid place-content-center p-5 border-stone-600 border-b-4 @container">
-				<div class="flex mb-3 mx-auto gap-3">
-					<button
-						class="btn btn-secondary flex-1"
-						onClick={() => props.onRemoveCard()}
-					>
-						Remove this card
-					</button>
-					<button
-						class="btn btn-secondary flex-1"
-						onClick={() => props.onDuplicateCard()}
-					>
-						Duplicate this card
-					</button>
-				</div>
-				<div class="flex overflow-x-hidden gap-3">
-					<CardComponent card={props.card()} />
+				<div class="flex flex-col gap-4">
 					<Show when={props.card().verso}>
-						<div class="absolute @sm:relative mx-auto @sm:mx-none left-0 w-full @sm:w-auto z-10 transition-opacity opacity-0 @sm:opacity-100 hover:opacity-100">
-							<CardVerso verso={props.card().verso} />
+						<div class="flex items-center justify-center bg-stone-600/50 p-1 rounded-lg border border-stone-400/20 w-fit mx-auto">
+							<span class="label-text text-white mr-2 font-bold text-[10px] uppercase tracking-widest">View:</span>
+							<div class="join">
+								<button 
+									class={`join-item btn btn-xs px-2 min-h-0 h-6 ${!showBack() ? 'btn-primary' : 'btn-ghost text-stone-300'}`}
+									onClick={() => setShowBack(false)}
+								>
+									Front
+								</button>
+								<button 
+									class={`join-item btn btn-xs px-2 min-h-0 h-6 ${showBack() ? 'btn-primary' : 'btn-ghost text-stone-300'}`}
+									onClick={() => setShowBack(true)}
+								>
+									Back
+								</button>
+							</div>
 						</div>
 					</Show>
+
+					<div class="flex justify-center relative min-h-[300px] group cursor-pointer">
+						<div 
+							class={`transition-all duration-500 ease-in-out ${showBack() ? 'opacity-0 scale-95 pointer-events-none absolute' : 'opacity-100 scale-100'}`}
+						>
+							<CardComponent 
+								card={props.card()} 
+								onArtClick={handleArtClick}
+							/>
+						</div>
+						
+						<Show when={props.card().verso}>
+							<div 
+								class={`transition-all duration-500 ease-in-out ${!showBack() ? 'opacity-0 scale-95 pointer-events-none absolute' : 'opacity-100 scale-100'}`}
+							>
+								<CardVerso 
+									verso={props.card().verso} 
+									onArtClick={handleArtClick}
+								/>
+							</div>
+						</Show>
+
+						<Show when={!showBack()}>
+							<div 
+								class="absolute top-[10.3mm] left-auto right-auto w-[53.4mm] h-[38.8mm] bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-sm z-20"
+								style={{ 
+									display: props.card().category === "Planeswalker" ? "none" : "flex",
+									"margin-top": "var(--card-bleed)" 
+								}}
+								onClick={handleArtClick}
+							>
+								<span class="bg-primary text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
+									Alterar imagem
+								</span>
+							</div>
+							<Show when={props.card().category === "Planeswalker"}>
+								<div 
+									class="absolute top-[8.3mm] left-auto right-auto w-[53.7mm] h-[40.1mm] bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-sm z-20"
+									style={{ "margin-top": "var(--card-bleed)" }}
+									onClick={handleArtClick}
+								>
+									<span class="bg-primary text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
+										Alterar imagem
+									</span>
+								</div>
+							</Show>
+						</Show>
+					</div>
+
+					<div class="flex mt-2 mx-auto gap-2">
+						<button
+							class="btn btn-secondary btn-xs normal-case"
+							onClick={() => props.onRemoveCard()}
+						>
+							Remove card
+						</button>
+						<button
+							class="btn btn-secondary btn-xs normal-case"
+							onClick={() => props.onDuplicateCard()}
+						>
+							Duplicate card
+						</button>
+					</div>
 				</div>
 			</section>
 			<section class="@container p-2 @xl:p-5 overflow-y-auto overflow-x-hidden">
@@ -433,6 +519,26 @@ export default function EditCardForm(props: {
 					</fieldset>
 				</form>
 			</section>
+
+			<VariantsModal
+				open={variantsModalOpen()}
+				onClose={() => setVariantsModalOpen(false)}
+				variants={variants()}
+				isLoading={isLoadingVariants()}
+				cardName={props.card().title}
+				onSelect={(index) => {
+					const variant = variants()[index];
+					props.setCard((p) => ({ 
+						...p, 
+						artUrl: variant.artUrl || p.artUrl,
+						artist: variant.artist || p.artist,
+						set: variant.set || p.set,
+						rarity: variant.rarity || p.rarity,
+						collectorNumber: variant.collectorNumber || p.collectorNumber,
+					}));
+					setVariantsModalOpen(false);
+				}}
+			/>
 		</main>
 	);
 }

@@ -3,6 +3,7 @@ import InfoTab from "./info-tab";
 import ScryfallSearchBox from "./scryfall-searchbox";
 import { fetchVariants } from "../services/scryfall";
 import { Card } from "../types/card";
+import VariantsModal from "./variants-modal";
 
 type SidebarProps = {
 	language: string;
@@ -255,43 +256,17 @@ export default function Sidebar(props: SidebarProps) {
 					</div>
 				</form>
 			</dialog>
-			<dialog
-				class="z-30 modal modal-bottom sm:modal-middle"
+			<VariantsModal
 				open={variantsModalOpen()}
-			>
-				<div class="modal-box bg-stone-700 max-w-4xl">
-					<h3 class="font-bold text-lg text-white mb-4">Select Art: {selectedCardName()}</h3>
-					<Show when={isLoadingVariants()}>
-						<div class="flex justify-center p-10">
-							<span class="loading loading-spinner loading-lg text-primary"></span>
-						</div>
-					</Show>
-					<div class="grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto max-h-[70vh]">
-						<For each={variants()}>
-							{(variant, index) => (
-								<button
-									class="hover:ring-4 hover:ring-primary rounded-lg overflow-hidden transition-all"
-									onClick={() => {
-										props.onAddCard(selectedCardName(), index());
-										setVariantsModalOpen(false);
-									}}
-								>
-									<img src={variant.artUrl} alt={`Variant ${index()}`} class="w-full h-auto" />
-									<div class="bg-black/50 text-white text-xs p-1 text-center">
-										{variant.set?.toUpperCase()} - {variant.rarity}
-									</div>
-								</button>
-							)}
-						</For>
-					</div>
-					<div class="modal-action">
-						<button class="btn" onClick={() => setVariantsModalOpen(false)}>Cancel</button>
-					</div>
-				</div>
-				<form method="dialog" class="modal-backdrop bg-black/70" onClick={() => setVariantsModalOpen(false)}>
-					<button>close</button>
-				</form>
-			</dialog>
+				onClose={() => setVariantsModalOpen(false)}
+				variants={variants()}
+				isLoading={isLoadingVariants()}
+				cardName={selectedCardName()}
+				onSelect={(index) => {
+					props.onAddCard(selectedCardName(), index);
+					setVariantsModalOpen(false);
+				}}
+			/>
 		</>
 	);
 }

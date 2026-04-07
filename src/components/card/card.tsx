@@ -14,6 +14,7 @@ export default function CardComponent(props: {
 	card: Card;
 	id?: string;
 	onClick?: () => void;
+	onArtClick?: () => void;
 	selected?: boolean;
 }) {
 	const frameAndBackground = () =>
@@ -67,7 +68,7 @@ export default function CardComponent(props: {
 					}}
 				/>
 				{props.card.artUrl && (
-					<Art url={props.card.artUrl} category={props.card.category} />
+					<Art url={props.card.artUrl} category={props.card.category} onArtClick={props.onArtClick} />
 				)}
 				<img
 					style={{
@@ -85,7 +86,10 @@ export default function CardComponent(props: {
 					manaCost={props.card.manaCost}
 					category={props.card.category}
 				/>
-				<TypeBar type={props.card.typeText} category={props.card.category} />
+				<TypeBar 
+					type={props.card.typeText} 
+					category={props.card.category} 
+				/>
 				{props.card.category == "Regular" ? (
 					props.card.aspect.frame != "Basic Land" && (
 						<RegularDescription

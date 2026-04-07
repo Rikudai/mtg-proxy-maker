@@ -28,7 +28,6 @@ async function fetchCachedJson(url: string): Promise<any> {
 	requestCache.set(url, promise);
 	return promise;
 }
-
 export function parseMana(manaCostString: string = ""): ManaType[] {
 	const manaCost = manaCostString.match(/\{(.+?)\}/g) ?? [];
 	return manaCost.flatMap((manaWithBraces): ManaType | ManaType[] => {
@@ -342,6 +341,7 @@ export async function fetchCard(
 
 	const card: Card = {
 		title: primaryText.title,
+		originalName: enCardFaceInfo["name"],
 		manaCost,
 		artUrl: enCardFaceInfo["image_uris"]?.["art_crop"],
 		totalVariants: variants.length,
@@ -379,6 +379,7 @@ export async function fetchCard(
 	return {
 		verso: biFaced ? {
 			title: reverseText!.title,
+			originalName: enReverseFaceInfo["name"],
 			manaCost,
 			artUrl: enReverseFaceInfo["image_uris"]?.["art_crop"],
 			totalVariants: variants.length,
@@ -422,7 +423,7 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 		`https://api.scryfall.com/cards/search/?q=!"${title}" unique:art prefer:newest`,
 	);
 
-	return (response.data || [])
+	const variants = (response.data || [])
 		.map((card: any, i: number, arr: any[]): Partial<Card> => {
 			let partial: Partial<Card> = {
 				artUrl: card["image_uris"]?.["art_crop"],
@@ -468,6 +469,8 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 		.filter((v: any) => {
 			return v?.artUrl != null;
 		});
+
+	return variants;
 }
 
 export async function fetchCardType(name: string): Promise<string> {
