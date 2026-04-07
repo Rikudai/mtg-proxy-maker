@@ -1,6 +1,7 @@
-import { JSX } from "solid-js/jsx-runtime";
+import { JSX } from "solid-js";
 import flavorTextDividerUrl from "../../assets/images/flavor-text-divider.png";
 import { symbols } from "../../types/symbols";
+import ShrinkToFit from "./shrink-to-fit";
 
 type RegularDescriptionProps = {
 	oracle?: string;
@@ -33,28 +34,21 @@ function injectSymbols(description: string): JSX.Element {
 }
 
 export default function RegularDescription(props: RegularDescriptionProps) {
-	const totalText = (props.oracle ?? "") + (props.flavor ?? "");
-	const totalLength = totalText.length;
-	const paragraphs = totalText.split('\n').length - 1
-	const divider = props.flavor && props.oracle ? 1 : 0
-
 	return (
-		<div
+		<ShrinkToFit
+			minFontSize={6}
+			maxFontSize={9.5}
+			unit="pt"
 			style={{
-				display: "flex",
-				"flex-direction": "column",
-				"justify-content": "center",
 				top: "55.1mm",
-				height: "24.5mm",
 				left: "4.9mm",
 				right: "4.7mm",
 				position: "absolute",
-				"--rows": (totalLength / 27) + (paragraphs * 0.5) + (divider * 1),
-				"font-size": `clamp(6.5pt, 92.6px / var(--rows) * 1.2, 9.5pt)`,
 				padding: "1mm",
 				"font-family": "MPlantin",
 				"line-height": 0.9,
 			}}
+			containerHeight="24.5mm"
 		>
 			{props.oracle && (
 				<div
@@ -98,6 +92,6 @@ export default function RegularDescription(props: RegularDescriptionProps) {
 					{props.flavor}
 				</p>
 			)}
-		</div>
+		</ShrinkToFit>
 	);
 }

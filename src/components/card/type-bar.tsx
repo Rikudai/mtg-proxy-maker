@@ -1,5 +1,6 @@
-import { JSX } from "solid-js/jsx-runtime";
+import { JSX } from "solid-js";
 import { Card } from "../../types/card";
+import ShrinkToFit from "./shrink-to-fit";
 
 type TypeBarProps = {
 	type: string;
@@ -33,18 +34,27 @@ export default function TypeBar(props: TypeBarProps) {
 				...style[props.category],
 			}}
 		>
-			<h1
+			<ShrinkToFit
+				minFontSize={6}
+				maxFontSize={9}
+				unit="pt"
+				justifyContent="flex-start"
 				style={{
+					flex: 1,
 					margin: 0,
 					"margin-left": "0.5mm",
-					"font-family": "Beleren",
-					"--rows": props.type.length,
-					"font-size": `clamp(6pt, (200px) / var(--rows) * 2, 9pt)`,
-					flex: 1,
 				}}
 			>
-				{props.type}
-			</h1>
+				<h1
+					style={{
+						margin: 0,
+						"font-family": "Beleren",
+						"font-size": "inherit",
+					}}
+				>
+					{props.type}
+				</h1>
+			</ShrinkToFit>
 		</div>
 	);
 }

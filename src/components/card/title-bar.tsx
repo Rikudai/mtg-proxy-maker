@@ -1,5 +1,4 @@
-import { mergeProps } from "solid-js";
-import { JSX } from "solid-js/jsx-runtime";
+import { mergeProps, JSX } from "solid-js";
 import { Card } from "../../types/card";
 import {
 	ManaType,
@@ -8,6 +7,7 @@ import {
 	customManaTypes,
 } from "../../types/mana";
 import { symbols } from "../../types/symbols";
+import ShrinkToFit from "./shrink-to-fit";
 
 type TitleBarProps = {
 	title: string;
@@ -74,19 +74,28 @@ export default function TitleBar(p: TitleBarProps) {
 				...style[props.category],
 			}}
 		>
-			<h1
+			<ShrinkToFit
+				minFontSize={7}
+				maxFontSize={10.5}
+				unit="pt"
+				justifyContent="flex-start"
 				style={{
-					margin: 0,
-					"margin-top": "auto",
-					"margin-bottom": "auto",
-					"margin-left": "0.5mm",
-					"--chars": props.title.length + (coloredMana().length * 2) + (colorlessMana().length > 0 ? 2 : 0),
-					"font-size": `clamp(7pt, (200px) / var(--chars)*2, 10pt)`,
 					flex: 1,
+					margin: 0,
+					"margin-left": "0.5mm",
 				}}
 			>
-				{props.title}
-			</h1>
+				<h1
+					style={{
+						margin: 0,
+						"margin-top": "auto",
+						"margin-bottom": "auto",
+						"font-size": "inherit",
+					}}
+				>
+					{props.title}
+				</h1>
+			</ShrinkToFit>
 			{props.manaCost.length > 0 && (
 				<div
 					style={{

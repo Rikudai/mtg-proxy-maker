@@ -9,6 +9,26 @@ import {
 	manaLetterToType as manaLetterToTypeMap, ManaType
 } from "../types/mana";
 
+const requestCache = new Map<string, Promise<any>>();
+async function fetchCachedJson(url: string): Promise<any> {
+	if (requestCache.has(url)) {
+		return requestCache.get(url)!;
+	}
+	
+	const promise = fetch(url)
+		.then(async (r) => {
+			const json = await r.json().catch(() => null);
+			return json || { status: r.status };
+		})
+		.catch(e => {
+			console.error("Network error:", e);
+			return { status: 500 };
+		});
+		
+	requestCache.set(url, promise);
+	return promise;
+}
+
 export function parseMana(manaCostString: string = ""): ManaType[] {
 	const manaCost = manaCostString.match(/\{(.+?)\}/g) ?? [];
 	return manaCost.flatMap((manaWithBraces): ManaType | ManaType[] => {
@@ -171,9 +191,9 @@ async function translateGoogle(text: string, targetLang: string): Promise<string
 	try {
 		const { preparedText, placeholders } = prepareMtgText(text, targetLang);
 		const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${targetLang}&dt=t&q=${encodeURIComponent(preparedText)}`;
-		const res = await fetch(url);
-		if (!res.ok) throw new Error("Translation request failed");
-		const json = (await res.json()) as any[];
+		const json = await fetchCachedJson(url);
+		if (json && json.status && json.status >= 400) throw new Error("Translation request failed");
+		
 		let translatedText = json?.[0]?.map((x: any) => x?.[0] || '')?.join('') || preparedText;
 		
 		return restoreMtgText(translatedText, placeholders);
@@ -209,52 +229,27 @@ export async function fetchCard(
 	lang = "en",
 	variant: number = 0,
 ): Promise<Card> {
-	let [frCards, enCards]: [any, any] = await Promise.all([
-		fetch(
+	let [frCards, enCards] = await Promise.all([
+		fetchCachedJson(
 			`https://api.scryfall.com/cards/search/?q=((!"${title}" lang:${lang}) or ("${title}" t:token)) -t:card order:released direction:asc`,
-			{
-				headers: {
-					Origin: window.location.href
-				}
-			}
-		).catch((e) => {
-			console.error(e);
-			throw new CardError(
-				title,
-				`not found for ${lang}`
-			);
-		}),
-		fetch(
+		),
+		fetchCachedJson(
 			`https://api.scryfall.com/cards/search/?q=((!"${title}") or ("${title}" t:token)) -t:card order:released direction:asc`,
-			{
-				headers: {
-					Origin: window.location.href
-				}
-			}
-		).catch((e) => {
-			console.error(e);
-			throw new CardError(
-				title,
-				'Not found'
-			);
-		}),
-	]).then(([fr, en]) => Promise.all([fr.json(), en.json()]));
+		),
+	]);
 
-	const frCardsStatus = frCards.status;
-
-	if (enCards.status == 404) {
-		throw new CardError(
-			title,
-			'Not found'
-		);
+	const enCardsStatus = enCards.status ?? 200;
+	if (enCardsStatus === 404 || enCardsStatus >= 500) {
+		throw new CardError(title, "Not found");
 	}
 
-	if (frCards.status == 404) {
+	const frCardsStatus = frCards.status ?? 200;
+	if (frCardsStatus === 404 || frCardsStatus >= 500) {
 		frCards = enCards;
 	}
 
-	const fr = frCards.data.find((c: any) => c.name.includes(title));
-	const en = enCards.data.find((c: any) => c.name.includes(title));
+	const fr = frCards.data?.find((c: any) => c.name.includes(title));
+	const en = enCards.data?.find((c: any) => c.name.includes(title));
 
 	if (!fr || !en) {
 		throw new CardError(
@@ -391,17 +386,11 @@ export async function fetchCard(
 }
 
 export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
-	const response = await fetch(
+	const response = await fetchCachedJson(
 		`https://api.scryfall.com/cards/search/?q=!"${title}" unique:art prefer:newest`,
-		{
-			headers: {
-				Origin: window.location.href
-			}
-		}
+	);
 
-	).then((r) => r.json() as any);
-
-	return response.data
+	return (response.data || [])
 		.map((card: any, i: number, arr: any[]): Partial<Card> => {
 			let partial: Partial<Card> = {
 				artUrl: card["image_uris"]?.["art_crop"],
@@ -450,14 +439,9 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 }
 
 export async function fetchCardType(name: string): Promise<string> {
-	const response = await fetch(
+	const response = await fetchCachedJson(
 		`https://api.scryfall.com/cards/search/?q=!"${name}"`,
-		{
-			headers: {
-				Origin: window.location.href
-			}
-		}
-	).then((r) => r.json() as any);
+	);
 
 	const [card] = response.data ?? [];
 

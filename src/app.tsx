@@ -2,7 +2,9 @@ import {
 	createEffect,
 	createResource,
 	createSignal, For, untrack,
-	Show
+	Show,
+	onMount,
+	onCleanup
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import CardComponent from "./components/card/card";
@@ -46,11 +48,11 @@ export const [defaultVerso, setDefaultVerso] = createSignal<string>(
 	localStorage.getItem("defaultVerso") || "",
 );
 
-createEffect(function syncWithLocalStorage() {
-	localStorage.setItem("defaultVerso", defaultVerso());
-});
-
 export default function App() {
+	createEffect(function syncDefaultVersoWithLocalStorage() {
+		localStorage.setItem("defaultVerso", defaultVerso());
+	});
+
 	const url = new URL(window.location.href);
 
 	const rawLanguage =
@@ -63,6 +65,8 @@ export default function App() {
 		localStorage.getItem("printVersos") == "true",
 	);
 	const [isMTGOImporting, setIsMTGOImporting] = createSignal(false);
+	const [importProgress, setImportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
+	const [exportProgress, setExportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
 
 	const [cardList, setCardList] = createResourceStore<Card[]>([], () =>
 		getCardList(),
@@ -96,19 +100,33 @@ export default function App() {
 
 	async function getNewListFromMTGO(mtgoList: string) {
 		const parsedList = parseMtgo(mtgoList);
-
-		const result = await Promise.allSettled(
-			parsedList.flatMap(({ name, number }) =>
-				[...new Array(number)].map(async (_, i) =>
-					fetchCard(
-						name,
-						language(),
-						// todo implement variant only for basic lands
-						i,
-					),
-				),
-			),
+		const tasks = parsedList.flatMap(({ name, number }) =>
+			[...new Array(number)].map((_, i) => ({ name, i }))
 		);
+
+		const result: PromiseSettledResult<Card>[] = [];
+		const concurrencyLimit = 1; // Processando 1 por 1 como solicitado
+		
+		setImportProgress({ current: 0, total: tasks.length, cardName: tasks[0]?.name || "Iniciando..." });
+
+		for (let i = 0; i < tasks.length; i += concurrencyLimit) {
+			const batch = tasks.slice(i, i + concurrencyLimit);
+			
+			if (batch.length > 0) {
+				setImportProgress({ current: i + 1, total: tasks.length, cardName: batch[0].name });
+			}
+
+			const batchResults = await Promise.allSettled(
+				batch.map(async (task) => {
+					return fetchCard(task.name, language(), task.i);
+				})
+			);
+			result.push(...batchResults);
+			
+			if (i + concurrencyLimit < tasks.length) {
+				await new Promise(r => setTimeout(r, 60));
+			}
+		}
 
 		console.debug('result', result)
 
@@ -125,28 +143,40 @@ export default function App() {
 	async function getCardList(): Promise<Card[]> {
 		const urlCardList = url.searchParams.get("cardList");
 
+		localStorage.removeItem("cardList"); // Limpa qualquer lixo da versão anterior
+
 		if (urlCardList) {
 			window.history.replaceState(null, "", "/");
 			return getNewListFromMTGO(decodeURI(urlCardList));
 		} else {
-			// fetch all cards from localStorage
-			const rawCardList = localStorage.getItem("cardList") ?? "[]";
-			return JSON.parse(rawCardList) as Card[];
+			return [];
 		}
 	}
 
 	createEffect(function syncWithLocalStorage() {
-		if (cardList().state == "ready") {
-			localStorage.setItem("cardList", JSON.stringify(cardList().value));
-		}
 		localStorage.setItem("language", language());
 		localStorage.setItem("printVersos", printVersos() ? "true" : "false");
 	});
 
+	onMount(() => {
+		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+			const currentCards = untrack(() => cardList().value);
+			if (currentCards && currentCards.length > 0) {
+				e.preventDefault();
+				e.returnValue = "";
+			}
+		};
+		
+		window.addEventListener("beforeunload", handleBeforeUnload);
+		onCleanup(() => window.removeEventListener("beforeunload", handleBeforeUnload));
+	});
+
 	createEffect(function updateCardsLang() {
 		const lang = language();
-		const val = untrack(() => cardList().value);
-		const clonedList = JSON.parse(JSON.stringify(val)) as Card[];
+		const clonedList = untrack(() => {
+			const val = cardList().value;
+			return JSON.parse(JSON.stringify(val)) as Card[];
+		});
 		setCardList(clonedList.map((c: any) => ({ ...c, language: lang })));
 	});
 
@@ -159,16 +189,19 @@ export default function App() {
 				return;
 			}
 
-			const toastId = toast.loading("Gerando imagens e comprimindo ZIP... Por favor, aguarde.");
+			setExportProgress({ current: 0, total: elements.length, cardName: "Preparando exportação..." });
 			const nameCounts: Record<string, number> = {};
 
 			for (let i = 0; i < elements.length; i++) {
 				const node = elements[i] as HTMLElement;
+				const baseName = node.dataset.name || "Card";
+				
+				setExportProgress({ current: i + 1, total: elements.length, cardName: baseName });
+
 				// Pula a checagem manual quebrado de CORS no cache e adiciona cacheBust para que o html-to-image baixe de novo as scryfall imagens.
 				const blob = await toPng(node, { pixelRatio: 2, cacheBust: true });
 				const base64Data = blob.replace(/^data:image\/png;base64,/, "");
 
-				const baseName = node.dataset.name || "Card";
 				nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
 				
 				const uniqueName = nameCounts[baseName] === 1 
@@ -180,20 +213,84 @@ export default function App() {
 				zip.file(`${safeName}.png`, base64Data, { base64: true });
 			}
 
+			setExportProgress({ current: elements.length, total: elements.length, cardName: "Comprimindo arquivo ZIP..." });
 			const content = await zip.generateAsync({ type: 'blob' });
 			saveAs(content, "mtg-proxies.zip");
 			
-			toast.dismiss(toastId);
+			setExportProgress(null);
 			toast.success("Download do pacote ZIP concluído!");
 		} catch (error) {
 			console.error("Failed to generate zip", error);
-			toast.dismiss();
+			setExportProgress(null);
 			toast.error("Desculpe, ocorreu um erro ao gerar o arquivo ZIP.");
 		}
 	}
 
 	return (
-		<main class="md:grid md:grid-rows-none md:grid-cols-[1fr_50rem_1fr] md:h-screen font-serif print:!block print:overflow-visible">
+		<main class="md:grid md:grid-rows-none md:grid-cols-[1fr_50rem_1fr] md:h-screen font-serif print:!block print:overflow-visible relative">
+			<Show when={exportProgress()}>
+				{(progress) => (
+					<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm print:hidden">
+						<div class="bg-stone-800 border border-stone-600 rounded-2xl p-8 max-w-lg w-full flex flex-col items-center gap-6 shadow-2xl text-white">
+							<div class="text-2xl font-bold tracking-wider text-center drop-shadow-md">
+								Exportando Cartas...
+							</div>
+							
+							<div class="w-full relative">
+								<div class="overflow-hidden h-5 mb-4 text-xs flex rounded-full bg-stone-950 shadow-inner w-full relative">
+									<div 
+										style={{ width: `${(progress().current / progress().total) * 100}%` }} 
+										class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary transition-all duration-300 ease-out"
+									></div>
+								</div>
+								<div class="text-sm text-center text-stone-300 font-medium">
+									{progress().current} de {progress().total} Processadas
+								</div>
+							</div>
+
+							<div class="bg-stone-900 w-full p-4 rounded-xl flex items-center gap-4 shadow-inner border border-stone-800">
+								<span class="loading loading-ring loading-md text-primary"></span>
+								<div class="flex-1 overflow-hidden">
+									<p class="text-xs text-stone-400 uppercase tracking-widest font-semibold mb-1">Gerando Imagem</p>
+									<p class="text-lg text-stone-100 truncate w-full italic">{progress().cardName}</p>
+								</div>
+							</div>
+						</div>
+					</div>
+				)}
+			</Show>
+
+			<Show when={importProgress()}>
+				{(progress) => (
+					<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm print:hidden">
+						<div class="bg-stone-800 border border-stone-600 rounded-2xl p-8 max-w-lg w-full flex flex-col items-center gap-6 shadow-2xl text-white">
+							<div class="text-2xl font-bold tracking-wider text-center drop-shadow-md">
+								Importando Cartas...
+							</div>
+							
+							<div class="w-full relative">
+								<div class="overflow-hidden h-5 mb-4 text-xs flex rounded-full bg-stone-950 shadow-inner w-full relative">
+									<div 
+										style={{ width: `${(progress().current / progress().total) * 100}%` }} 
+										class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary transition-all duration-300 ease-out"
+									></div>
+								</div>
+								<div class="text-sm text-center text-stone-300 font-medium">
+									{progress().current} de {progress().total} Processadas
+								</div>
+							</div>
+
+							<div class="bg-stone-900 w-full p-4 rounded-xl flex items-center gap-4 shadow-inner border border-stone-800">
+								<span class="loading loading-ring loading-md text-primary"></span>
+								<div class="flex-1 overflow-hidden">
+									<p class="text-xs text-stone-400 uppercase tracking-widest font-semibold mb-1">Analisando e Traduzindo</p>
+									<p class="text-lg text-stone-100 truncate w-full italic">{progress().cardName}</p>
+								</div>
+							</div>
+						</div>
+					</div>
+				)}
+			</Show>
 			<Toaster position="bottom-right" />
 			<Sidebar
 				onClearList={() => {
@@ -214,6 +311,7 @@ export default function App() {
 						setSelectedCardIndex(null);
 					} finally {
 						setIsMTGOImporting(false);
+						setImportProgress(null);
 					}
 				}}
 				onDownloadZip={extractZip}

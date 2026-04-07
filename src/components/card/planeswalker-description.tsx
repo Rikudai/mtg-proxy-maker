@@ -1,6 +1,7 @@
-import { JSX } from "solid-js/jsx-runtime";
-import { match, P } from "ts-pattern";
+import { JSX } from "solid-js";
+import { match } from "ts-pattern";
 import { symbols } from "../../types/symbols";
+import ShrinkToFit from "./shrink-to-fit";
 
 type PlaneswalkerDescriptionProps = {
 	oracle: string;
@@ -94,31 +95,6 @@ function PlaneswalkerCost({ cost }: { cost: string }) {
 export default function PlaneswalkerDescription(
 	props: PlaneswalkerDescriptionProps,
 ) {
-	const fontSize = match(
-		props.oracle.split("\n").reduce((a, b) => Math.max(a, b.length), 0),
-	)
-		.with(
-			P.when((maxLength) => maxLength < 50),
-			() => "7pt",
-		)
-		.with(
-			P.when((maxLength) => maxLength < 100),
-			() => "6.5pt",
-		)
-		.with(
-			P.when((maxLength) => maxLength < 150),
-			() => "5.8pt",
-		)
-		.with(
-			P.when((maxLength) => maxLength < 200),
-			() => "5.5pt",
-		)
-		.with(
-			P.when((maxLength) => maxLength < 250),
-			() => "5.3pt",
-		)
-		.otherwise(() => "5pt");
-
 	const parsedDescription: Array<[JSX.Element, JSX.Element]> = props.oracle
 		.split("\n")
 		.map((line, i) => {
@@ -131,7 +107,7 @@ export default function PlaneswalkerDescription(
 						class={`m-0 pl-2.5 pr-1 flex items-center last:pb-1 ${i % 2 == 0 ? "bg-gray-50/70" : "bg-gray-200/70"
 							}`}
 						style={{
-							"font-size": fontSize,
+							"font-size": "inherit",
 						}}
 					>
 						{injectSymbols(splitted[2])}
@@ -144,7 +120,7 @@ export default function PlaneswalkerDescription(
 						class={`m-0 pl-1 pr-1 flex items-center ${i % 2 == 0 ? "bg-gray-50/70" : "bg-gray-200/70"
 							}`}
 						style={{
-							"font-size": fontSize,
+							"font-size": "inherit",
 						}}
 					>
 						{injectSymbols(splitted[0])}
@@ -154,21 +130,20 @@ export default function PlaneswalkerDescription(
 		});
 
 	return (
-		<div
+		<ShrinkToFit
+			minFontSize={4.5}
+			maxFontSize={7.5}
+			unit="pt"
 			style={{
-				display: "flex",
-				"flex-direction": "column",
-				"justify-content": "center",
 				top: "54mm",
-				height: "27.1mm",
 				left: "2.9mm",
 				right: "4.2mm",
 				position: "absolute",
-				"font-size": "6pt",
 				padding: "0.8mm",
 				"font-family": "MPlantin",
 				"line-height": 1,
 			}}
+			containerHeight="27.1mm"
 		>
 			<div class="grid grid-cols-[3.9mm_1fr] h-full">
 				{parsedDescription.map(([cost, description]) => (
@@ -178,6 +153,6 @@ export default function PlaneswalkerDescription(
 					</>
 				))}
 			</div>
-		</div>
+		</ShrinkToFit>
 	);
 }
