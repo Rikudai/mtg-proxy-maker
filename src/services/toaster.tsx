@@ -12,6 +12,6 @@ export function toastError(error: CardError) {
 				<div class="text-xs">{error.message}</div>
 			</div>
 		</div>, {
-		duration: Infinity
+		duration: 1000
 	})
 }

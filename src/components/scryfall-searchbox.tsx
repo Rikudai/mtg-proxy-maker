@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { searchCard } from "../services/scryfall";
 import { ListCard } from "../types/list-card";
 
@@ -8,10 +8,20 @@ type ScryfallSearchBoxProps = {
 
 export default function ScryfallSearchBox(props: ScryfallSearchBoxProps) {
 	const [search, setSearch] = createSignal("");
+	const [debouncedSearch, setDebouncedSearch] = createSignal("");
 	const [showResults, setShowResults] = createSignal(false);
-	
+
+	// Debounce: espera 500ms após última digitação antes de buscar
+	createEffect(() => {
+		const value = search();
+		const timer = setTimeout(() => {
+			setDebouncedSearch(value);
+		}, 500);
+		onCleanup(() => clearTimeout(timer));
+	});
+
 	const [results] = createResource(
-		() => (search().length >= 3 ? search() : null), 
+		() => (debouncedSearch().length >= 3 ? debouncedSearch() : null),
 		searchCard
 	);
 

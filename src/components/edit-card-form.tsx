@@ -105,7 +105,7 @@ export default function EditCardForm(props: {
 						</div>
 					</Show>
 
-					<div class="relative group cursor-pointer card-hover-effect">
+					<div class="relative group">
 						<div class={`transition-all duration-500 ${showBack() ? 'opacity-0 scale-95 pointer-events-none absolute inset-0' : 'opacity-100 scale-100'}`}>
 							<CardComponent card={props.card()} onArtClick={handleArtClick} />
 						</div>
@@ -117,10 +117,18 @@ export default function EditCardForm(props: {
 						
 						{!showBack() && (
 							<div 
-								class="absolute top-[8mm] left-0 right-0 bottom-0 pointer-events-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-mtg-black/40 rounded-2xl"
+								class="absolute pointer-events-auto flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+								style={{
+									top: "10.3mm",
+									left: "4.9mm",
+									width: "53.4mm",
+									height: "38.8mm",
+									"background-color": "rgba(0,0,0,0.45)",
+									"border-radius": "2px",
+								}}
 								onClick={handleArtClick}
 							>
-								<span class="bg-mtg-gold text-mtg-black px-4 py-2 rounded-full text-xs font-bold shadow-glow-gold pointer-events-auto">
+								<span class="bg-mtg-gold text-mtg-black px-3 py-1.5 rounded-full text-[10px] font-bold shadow-glow-gold pointer-events-none select-none">
 									Switch Art
 								</span>
 							</div>
@@ -183,7 +191,7 @@ export default function EditCardForm(props: {
 											placeholder="https://..."
 										/>
 										<label class="flex items-center justify-center px-4 rounded-xl bg-mtg-stone-900 border border-mtg-blue/30 text-mtg-blue cursor-pointer hover:bg-mtg-blue hover:text-mtg-white transition-all">
-											<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+											<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 11 12 6 17 11"/><line x1="12" x2="12" y1="6" y2="15"/></svg>
 											<input type="file" class="hidden" accept="image/*" onChange={(e) => {
 												const file = e.currentTarget.files?.item(0);
 												if (!file) return;
@@ -381,7 +389,7 @@ export default function EditCardForm(props: {
 												placeholder="https://..."
 											/>
 											<label class="flex items-center justify-center px-4 rounded-xl bg-mtg-red/10 border border-mtg-red/30 text-mtg-red cursor-pointer hover:bg-mtg-red hover:text-mtg-white transition-all">
-												<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+												<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 11 12 6 17 11"/><line x1="12" x2="12" y1="6" y2="15"/></svg>
 												<input type="file" class="hidden" accept="image/*" onChange={(e) => {
 													const file = e.currentTarget.files?.item(0);
 													if (!file) return;

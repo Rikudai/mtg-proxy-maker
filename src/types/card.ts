@@ -4,6 +4,7 @@ import { ManaType } from "./mana";
 export type Card = {
 	overrideWithScanUrl?: string;
 	artUrl: string;
+	isLoading?: boolean;
 	artist?: string;
 	aspect: { frame: CardFrame; color: CardColor; legendary: boolean };
 	collectorNumber?: string;

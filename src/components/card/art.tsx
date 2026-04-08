@@ -1,9 +1,11 @@
+import { createSignal, Show } from "solid-js";
 import { JSX } from "solid-js/jsx-runtime";
 import { Card } from "../../types/card";
 
 type ArtProps = {
 	url: string;
 	category: Card["category"];
+	isLoading?: boolean;
 	onArtClick?: () => void;
 };
 
@@ -27,5 +29,45 @@ const style: Record<Card["category"], JSX.CSSProperties> = {
 };
 
 export default function Art(props: ArtProps) {
-	return <img style={style[props.category]} src={props.url} onClick={props.onArtClick} />;
+	const [imgLoaded, setImgLoaded] = createSignal(false);
+	const showSkeleton = () => props.isLoading || (!imgLoaded() && !!props.url);
+
+	return (
+		<>
+			{/* Skeleton shimmer — visível enquanto carrega */}
+			<Show when={showSkeleton()}>
+				<div
+					style={{
+						...style[props.category],
+						overflow: "hidden",
+						"border-radius": "2px",
+					}}
+				>
+					<div
+						style={{
+							width: "100%",
+							height: "100%",
+							background: "linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)",
+							"background-size": "200% 100%",
+							animation: "art-shimmer 1.4s ease-in-out infinite",
+						}}
+					/>
+				</div>
+			</Show>
+
+			{/* Imagem real — renderizada mas invisível até carregar */}
+			<Show when={!props.isLoading && !!props.url}>
+				<img
+					style={{
+						...style[props.category],
+						opacity: imgLoaded() ? 1 : 0,
+						transition: "opacity 0.4s ease",
+					}}
+					src={props.url}
+					onLoad={() => setImgLoaded(true)}
+					onClick={props.onArtClick}
+				/>
+			</Show>
+		</>
+	);
 }

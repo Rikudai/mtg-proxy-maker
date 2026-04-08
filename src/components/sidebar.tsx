@@ -110,11 +110,17 @@ export default function Sidebar(props: SidebarProps) {
 		setVariantsModalOpen(true);
 		try {
 			const fetchedVariants = await fetchVariants(name);
+			if (fetchedVariants.length === 0) {
+				// Sem variantes disponíveis: adiciona diretamente sem abrir o modal
+				setVariantsModalOpen(false);
+				props.onAddCard(name, 0);
+				return;
+			}
 			setVariants(fetchedVariants);
 		} catch (e) {
 			console.error(e);
-			props.onAddCard(name); // Fallback to default if variants fail
 			setVariantsModalOpen(false);
+			props.onAddCard(name); // Fallback to default if variants fail
 		} finally {
 			setIsLoadingVariants(false);
 		}
@@ -126,9 +132,7 @@ export default function Sidebar(props: SidebarProps) {
 				<div class="flex flex-col h-full gap-8 p-6">
 					{/* Brand/Header */}
 					<div class="flex items-center gap-3 pb-2">
-						<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-mtg-gold to-mtg-red flex items-center justify-center shadow-glow-gold">
-							<svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-mtg-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10h10V2z"/><path d="m17 15 5 5"/><path d="m22 15-5 5"/><path d="M2 14h10v8H2v-8z"/><path d="M14 2h8v8h-8V2z"/><path d="M14 14h8v8h-8v-8z"/></svg>
-						</div>
+						<img src="/favicon-32x32.png" alt="Proxy Maker" class="w-10 h-10" />
 						<div>
 							<h1 class="font-beleren text-lg tracking-widest text-mtg-white uppercase leading-none">Proxy Maker</h1>
 							<span class="text-[10px] text-mtg-gold uppercase tracking-[0.2em] font-bold">Multiverse Edition</span>

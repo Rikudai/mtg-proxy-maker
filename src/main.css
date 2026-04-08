@@ -25,6 +25,11 @@
 
 @font-face {
 	font-family: "MPlantin";
+	src: url("/assets/fonts/Mplantin.woff") format("woff");
+}
+
+@font-face {
+	font-family: "MPlantin";
 	font-weight: bold;
 	src: url("/assets/fonts/MPlantin-Bold.ttf");
 }
@@ -33,11 +38,6 @@
 	font-family: "MPlantin";
 	font-style: italic;
 	src: url("/assets/fonts/MPlantin Italic.ttf");
-}
-
-@font-face {
-	font-family: "MPlantin";
-	src: url("/assets/fonts/Mplantin.woff");
 }
 
 @font-face {
@@ -79,14 +79,9 @@ body {
 }
 
 .card-hover-effect {
-	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	cursor: pointer;
 }
 
-.card-hover-effect:hover {
-	transform: translateY(-12px) scale(1.03);
-	box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.6);
-	z-index: 10;
-}
 
 .card-selected {
 	outline: 3px solid #D97706;
@@ -146,4 +141,10 @@ body {
 .card-export-target strong {
 	font-weight: bold !important;
 	font-family: inherit;
+}
+
+/* Art skeleton shimmer animation */
+@keyframes art-shimmer {
+	0% { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
 }

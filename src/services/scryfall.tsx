@@ -14,17 +14,34 @@ async function fetchCachedJson(url: string): Promise<any> {
 	if (requestCache.has(url)) {
 		return requestCache.get(url)!;
 	}
-	
+
 	const promise = fetch(url)
 		.then(async (r) => {
 			const json = await r.json().catch(() => null);
 			return json || { status: r.status };
 		})
-		.catch(e => {
-			console.error("Network error:", e);
-			return { status: 500 };
+		.catch(async (e) => {
+			// CORS ou erro de rede — aguarda e tenta uma vez mais
+			console.warn("Network error (retrying in 300ms):", e);
+			await new Promise(r => setTimeout(r, 300));
+			return fetch(url)
+				.then(async (r) => {
+					const json = await r.json().catch(() => null);
+					return json || { status: r.status };
+				})
+				.catch((e2) => {
+					console.error("Network error:", e2);
+					return { status: 500 };
+				});
+		})
+		.then((result: any) => {
+			// Remove do cache se for erro, para permitir retry futuro
+			if (result?.status === 500) {
+				requestCache.delete(url);
+			}
+			return result;
 		});
-		
+
 	requestCache.set(url, promise);
 	return promise;
 }
@@ -260,14 +277,12 @@ export async function fetchCard(
 	lang = "en",
 	variant: number = 0,
 ): Promise<Card> {
-	let [frCards, enCards] = await Promise.all([
-		fetchCachedJson(
-			`https://api.scryfall.com/cards/search/?q=((!"${title}" lang:${lang}) or ("${title}" t:token)) -t:card order:released direction:asc`,
-		),
-		fetchCachedJson(
-			`https://api.scryfall.com/cards/search/?q=((!"${title}") or ("${title}" t:token)) -t:card order:released direction:asc`,
-		),
-	]);
+	let frCards = await fetchCachedJson(
+		`https://api.scryfall.com/cards/search/?q=((!"${title}" lang:${lang}) or ("${title}" t:token)) order:released direction:asc`,
+	);
+	let enCards = await fetchCachedJson(
+		`https://api.scryfall.com/cards/search/?q=((!"${title}") or ("${title}" t:token)) order:released direction:asc`,
+	);
 
 	const enCardsStatus = enCards.status ?? 200;
 	if (enCardsStatus === 404 || enCardsStatus >= 500) {
@@ -279,10 +294,23 @@ export async function fetchCard(
 		frCards = enCards;
 	}
 
-	const fr = frCards.data?.find((c: any) => c.name.includes(title));
-	const en = enCards.data?.find((c: any) => c.name.includes(title));
+	const findMatch = (cards: any) => {
+		if (!cards?.data?.length) return null;
+		// Tenta encontrar o nome exato primeiro
+		const exact = cards.data.find((c: any) => c.name.toLowerCase() === title.toLowerCase());
+		if (exact) return exact;
+		// Fallback para o primeiro que inclui o título
+		const partial = cards.data.find((c: any) => c.name.toLowerCase().includes(title.toLowerCase()));
+		if (partial) return partial;
+		// Último fallback: o primeiro resultado da lista (confiando no !nome do Scryfall)
+		return cards.data[0];
+	};
+
+	const fr = findMatch(frCards);
+	const en = findMatch(enCards);
 
 	if (!fr || !en) {
+		console.error("Card match failure:", { title, frLength: frCards?.data?.length, enLength: enCards?.data?.length });
 		throw new CardError(
 			title,
 			'Not found'
@@ -326,19 +354,29 @@ export async function fetchCard(
 	} : null;
 
 	const targetLang = lang.startsWith("pt") ? "pt" : lang;
-	const needsTranslation = lang !== "en" && (frCardsStatus === 404 || frCardFaceInfo["lang"] === "en");
+	// Precisa traduzir se:
+	// 1. O idioma alvo não é inglês, E
+	// 2. A Scryfall não tem versão no idioma (404), OU
+	//    A versão localizada está em inglês (fallback), OU
+	//    A versão localizada não tem `printed_text` (usa oracle_text em inglês)
+	const hasPrintedText = !!frCardFaceInfo["printed_text"];
+	const needsTranslation = lang !== "en" && (
+		frCardsStatus === 404 ||
+		frCardFaceInfo["lang"] === "en" ||
+		!hasPrintedText
+	);
 	
 	if (needsTranslation) {
-		primaryText.title = await translateGoogle(primaryText.title, lang);
-		primaryText.typeText = await translateGoogle(primaryText.typeText, lang);
-		primaryText.oracleText = await translateGoogle(primaryText.oracleText, lang);
-		primaryText.flavorText = await translateGoogle(primaryText.flavorText, lang);
+		primaryText.title = await translateGoogle(primaryText.title, targetLang);
+		primaryText.typeText = await translateGoogle(primaryText.typeText, targetLang);
+		primaryText.oracleText = await translateGoogle(primaryText.oracleText, targetLang);
+		primaryText.flavorText = await translateGoogle(primaryText.flavorText, targetLang);
 		
 		if (reverseText) {
-			reverseText.title = await translateGoogle(reverseText.title, lang);
-			reverseText.typeText = await translateGoogle(reverseText.typeText, lang);
-			reverseText.oracleText = await translateGoogle(reverseText.oracleText, lang);
-			reverseText.flavorText = await translateGoogle(reverseText.flavorText, lang);
+			reverseText.title = await translateGoogle(reverseText.title, targetLang);
+			reverseText.typeText = await translateGoogle(reverseText.typeText, targetLang);
+			reverseText.oracleText = await translateGoogle(reverseText.oracleText, targetLang);
+			reverseText.flavorText = await translateGoogle(reverseText.flavorText, targetLang);
 		}
 	}
 
@@ -381,6 +419,23 @@ export async function fetchCard(
 		overrideWithScanUrl,
 	};
 
+	// Seleciona a variante escolhida pelo usuário
+	let selectedVariant: Partial<Card> = variants.length > 0 ? (variants[variant % variants.length] ?? {}) : {};
+
+	// Se a variante tem texto próprio (é um token), e o idioma alvo não é inglês,
+	// precisamos traduzir esses campos pois fetchVariants sempre busca em inglês
+	if (lang !== "en" && selectedVariant.typeText) {
+		selectedVariant = {
+			...selectedVariant,
+			typeText: await translateGoogle(selectedVariant.typeText ?? "", targetLang),
+			oracleText: enrichOracleText(
+				await translateGoogle(selectedVariant.oracleText ?? "", targetLang),
+				lang
+			),
+			flavorText: await translateGoogle(selectedVariant.flavorText ?? "", targetLang),
+		};
+	}
+
 	return {
 		verso: biFaced ? {
 			title: reverseText!.title,
@@ -419,7 +474,7 @@ export async function fetchCard(
 			overrideWithScanUrl,
 		} satisfies Card : "default",
 		...card,
-		...variants[variant % variants.length],
+		...selectedVariant,
 	} as Card;
 }
 
@@ -491,20 +546,13 @@ export async function fetchCardType(name: string): Promise<string> {
 export async function searchCard(search: string) {
 	if (search.length < 3) return [];
 
-	const response = await fetch(
-		`https://api.scryfall.com/cards/search/?q=${search}`,
-	).then(async (r) => {
-		const json = (await r.json()) as any;
-		if ("status" in json) {
-			throw new Error(
-				match(json.status)
-					.with(404, () => "No cards found")
-					.otherwise(() => "An error occured"),
-			);
-		} else {
-			return json;
-		}
-	});
+	const response = await fetchCachedJson(
+		`https://api.scryfall.com/cards/search/?q=${encodeURIComponent(search)}`,
+	);
+
+	if (response.status === 404) return [];
+	if (response.status >= 500) throw new Error("Erro na API do Scryfall");
+
 
 	const result: Array<{
 		name: string;

@@ -6,7 +6,7 @@ import {
 	onMount,
 	onCleanup
 } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import CardComponent from "./components/card/card";
 import CardVerso from "./components/card/card-verso";
 import EditCardForm from "./components/edit-card-form";
@@ -76,6 +76,10 @@ export default function App() {
 		null,
 	);
 
+	// Erros acumulados da última importação MTGO (agregados por nome)
+	const [importErrors, setImportErrors] = createSignal<Array<{ cardName: string, quantity: number, message: string }>>([]);
+	const [showErrorModal, setShowErrorModal] = createSignal(false);
+
 	const selectedCard = () =>
 		selectedCardIndex() !== null
 			? cardList().value[selectedCardIndex()!]
@@ -87,57 +91,71 @@ export default function App() {
 	};
 
 	async function fetchAndAddCard(name: string, variant: number = 0) {
+		// ID único para rastrear o placeholder durante fetch assíncrono
+		const placeholderId = `loading-${Date.now()}-${Math.random()}`;
+
+		const placeholder: Card = {
+			...getEmptyCard(),
+			title: name,
+			originalName: name,
+			isLoading: true,
+			set: placeholderId,
+		};
+
+		// Adiciona o placeholder imediatamente (sem mutação direta do store)
+		setCardList(produce((list: Card[]) => {
+			list.push(placeholder);
+		}));
+
 		try {
 			const fetchedCard = await fetchCard(name, language(), variant);
-
-			setCardList((prev) => [...prev, fetchedCard]);
+			// Substitui o placeholder pelo card real usando produce (SolidJS store safe)
+			setCardList(produce((list: Card[]) => {
+				const idx = list.findIndex(c => c.set === placeholderId);
+				if (idx !== -1) list.splice(idx, 1, fetchedCard);
+			}));
 		} catch (e) {
+			// Remove o placeholder em caso de erro
+			setCardList(produce((list: Card[]) => {
+				const idx = list.findIndex(c => c.set === placeholderId);
+				if (idx !== -1) list.splice(idx, 1);
+			}));
 			if (e instanceof CardError) {
-				toastError(e)
+				toastError(e);
 			}
 		}
 	}
 
-	async function getNewListFromMTGO(mtgoList: string) {
+	async function getNewListFromMTGO(mtgoList: string, onError?: (name: string, message: string) => void) {
 		const parsedList = parseMtgo(mtgoList);
 		const tasks = parsedList.flatMap(({ name, number }) =>
 			[...new Array(number)].map((_, i) => ({ name, i }))
 		);
 
-		const result: PromiseSettledResult<Card>[] = [];
-		const concurrencyLimit = 1; // Processando 1 por 1 como solicitado
-		
+		const successes: Card[] = [];
+
 		setImportProgress({ current: 0, total: tasks.length, cardName: tasks[0]?.name || "Iniciando..." });
 
-		for (let i = 0; i < tasks.length; i += concurrencyLimit) {
-			const batch = tasks.slice(i, i + concurrencyLimit);
-			
-			if (batch.length > 0) {
-				setImportProgress({ current: i + 1, total: tasks.length, cardName: batch[0].name });
+		for (let i = 0; i < tasks.length; i++) {
+			const task = tasks[i];
+			setImportProgress({ current: i + 1, total: tasks.length, cardName: task.name });
+
+			try {
+				const card = await fetchCard(task.name, language(), task.i);
+				successes.push(card);
+			} catch (e) {
+				if (e instanceof CardError) {
+					console.error(e);
+					onError?.(task.name, e.message);
+				}
 			}
 
-			const batchResults = await Promise.allSettled(
-				batch.map(async (task) => {
-					return fetchCard(task.name, language(), task.i);
-				})
-			);
-			result.push(...batchResults);
-			
-			if (i + concurrencyLimit < tasks.length) {
-				await new Promise(r => setTimeout(r, 60));
-			}
-		}
-
-		console.debug('result', result)
-
-		for (const { reason } of result.filter(r => r.status == 'rejected')) {
-			if (reason instanceof CardError) {
-				console.error(reason)
-				toastError(reason);
+			if (i < tasks.length - 1) {
+				await new Promise(r => setTimeout(r, 150));
 			}
 		}
 
-		return result.filter((result) => result.status == 'fulfilled').map((result) => (result as PromiseFulfilledResult<Card>).value)
+		return successes;
 	}
 
 	async function getCardList(): Promise<Card[]> {
@@ -177,7 +195,9 @@ export default function App() {
 			const val = cardList().value;
 			return JSON.parse(JSON.stringify(val)) as Card[];
 		});
-		setCardList(clonedList.map((c: any) => ({ ...c, lang })));
+		setCardList(produce((list: Card[]) => {
+			list.forEach((c: any) => { c.lang = lang; });
+		}));
 	});
 
 	async function extractZip() {
@@ -263,6 +283,51 @@ export default function App() {
 				)}
 			</Show>
 
+			{/* Modal de erros de importação */}
+			<Show when={showErrorModal() && importErrors().length > 0}>
+				<div class="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm print:hidden" onClick={() => setShowErrorModal(false)}>
+					<div class="glass rounded-2xl p-6 max-w-md w-full flex flex-col gap-4 shadow-glass border border-mtg-red/30 mx-4" onClick={(e) => e.stopPropagation()}>
+						<div class="flex items-center gap-3">
+							<div class="w-8 h-8 rounded-full bg-mtg-red/20 flex items-center justify-center flex-shrink-0">
+								<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-mtg-red" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>
+								</svg>
+							</div>
+							<div>
+								<h3 class="font-beleren text-mtg-white tracking-wide">Erros na importação</h3>
+								<p class="text-xs text-mtg-stone-400">{importErrors().length} carta(s) não foram encontradas</p>
+							</div>
+						</div>
+						<div class="bg-mtg-stone-950 rounded-xl p-3 max-h-48 overflow-y-auto custom-scrollbar flex flex-col gap-1">
+							{importErrors().map(e => (
+								<div class="flex items-center gap-2 text-sm">
+									<span class="text-mtg-red text-xs">✕</span>
+									<span class="text-mtg-stone-300 font-bold">{e.quantity}x</span>
+									<span class="text-mtg-stone-300">{e.cardName}</span>
+									<span class="text-mtg-stone-500 text-xs">— {e.message}</span>
+								</div>
+							))}
+						</div>
+						<div class="flex gap-2">
+							<button
+								id="copy-errors-btn"
+								class="flex-1 px-4 py-2 rounded-xl bg-mtg-stone-800 hover:bg-mtg-stone-700 text-mtg-stone-200 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+								onClick={() => {
+									const text = importErrors().map(e => `${e.quantity} ${e.cardName}`).join('\n');
+									navigator.clipboard.writeText(text);
+									const btn = document.getElementById('copy-errors-btn');
+									if (btn) { btn.textContent = '✓ Copiado!'; setTimeout(() => { btn.textContent = 'Copiar lista'; }, 1500); }
+								}}
+							>Copiar lista</button>
+							<button
+								class="px-4 py-2 rounded-xl bg-mtg-red/20 hover:bg-mtg-red/30 text-mtg-red text-sm font-medium transition-colors"
+								onClick={() => setShowErrorModal(false)}
+							>Fechar</button>
+						</div>
+					</div>
+				</div>
+			</Show>
+
 			<Show when={importProgress()}>
 				{(progress) => (
 					<div class="fixed inset-0 z-[100] flex items-center justify-center bg-mtg-black print:hidden">
@@ -308,9 +373,27 @@ export default function App() {
 				isMTGOImporting={isMTGOImporting()}
 				onRawListImport={async (rawList) => {
 					setIsMTGOImporting(true);
+					setImportErrors([]);
 					try {
-						const newList = await getNewListFromMTGO(rawList);
-						setCardList((prev) => [...prev, ...newList]);
+						const newList = await getNewListFromMTGO(
+							rawList,
+							(name, message) => {
+								toastError(new CardError(name, message));
+								setImportErrors(prev => {
+									const existing = prev.find(e => e.cardName === name);
+									if (existing) {
+										return prev.map(e => e.cardName === name ? { ...e, quantity: e.quantity + 1 } : e);
+									}
+									return [...prev, { cardName: name, quantity: 1, message }];
+								});
+							}
+						);
+						setCardList(produce((list: Card[]) => {
+							newList.forEach(c => list.push(c));
+						}));
+						if (importErrors().length > 0) {
+							setShowErrorModal(true);
+						}
 					} finally {
 						setIsMTGOImporting(false);
 						setImportProgress(null);
@@ -462,14 +545,17 @@ export default function App() {
 									card={card}
 									setCard={setSelectedCard}
 									onRemoveCard={() => {
-										setCardList(
-											cardList().value.filter((_, i) => i != selectedCardIndex()),
-										);
+										setCardList(produce((list: Card[]) => {
+											list.splice(selectedCardIndex()!, 1);
+										}));
 										setSelectedCardIndex(null);
 									}}
 									onDuplicateCard={() => {
-										setCardList((prev) => [...prev, { ...card() }]);
-										setSelectedCardIndex(cardList().value.length);
+										const cardToDuplicate = JSON.parse(JSON.stringify(card())) as Card;
+										setCardList(produce((list: Card[]) => {
+											list.push(cardToDuplicate);
+										}));
+										setSelectedCardIndex(cardList().value.length - 1);
 									}}
 									onSetCardDefaultVerso={(url) => {
 										setDefaultVerso(url);

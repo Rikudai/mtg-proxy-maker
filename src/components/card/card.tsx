@@ -68,8 +68,8 @@ export default function CardComponent(props: {
 						background: 'var(--card-bgc, "black")',
 					}}
 				/>
-				{props.card.artUrl && (
-					<Art url={props.card.artUrl} category={props.card.category} onArtClick={props.onArtClick} />
+				{(props.card.artUrl || props.card.isLoading) && (
+					<Art url={props.card.artUrl} isLoading={props.card.isLoading} category={props.card.category} onArtClick={props.onArtClick} />
 				)}
 				<img
 					style={{
