@@ -97,6 +97,32 @@ body {
 		display: grid;
 		grid-template-columns: repeat(3, auto);
 	}
+
+	.page-container {
+		background: rgba(28, 25, 23, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 1.5rem;
+		padding: 3rem;
+		box-shadow: 
+			0 25px 50px -12px rgba(0, 0, 0, 0.5),
+			inset 0 1px 1px rgba(255, 255, 255, 0.05);
+		position: relative;
+		transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+		backdrop-filter: blur(8px);
+	}
+
+	.page-container:hover {
+		border-color: rgba(217, 119, 6, 0.2);
+		background: rgba(28, 25, 23, 0.5);
+	}
+
+	.cursor-grab {
+		cursor: grab;
+	}
+
+	.cursor-grabbing {
+		cursor: grabbing !important;
+	}
 }
 
 @media print {
@@ -108,32 +134,70 @@ body {
 	html,
 	body {
 		background-color: white !important;
+		margin: 0 !important;
+		padding: 0 !important;
 	}
 
-	main,
+	main {
+		display: block !important;
+		background: white !important;
+		margin: 0 !important;
+		padding: 0 !important;
+	}
+
+	/* Hidden elements from print */
+	.print\:hidden,
+	[class*="print:hidden"],
+	#sidebar-container,
+	button,
+	.toaster-container,
+	.fixed,
+	.absolute {
+		display: none !important;
+	}
+
+	/* Ensure grid targets are visible only if intended */
+	.page-container {
+		display: block !important;
+		visibility: visible !important;
+		page-break-after: always;
+		margin: 0 !important;
+		padding: 0 !important;
+	}
+
 	.pages {
+		padding: 0 !important;
+		background: white !important;
+	}
+
+	.page-container {
+		padding: var(--page-padding) !important;
+		margin: 0 !important;
+		border: none !important;
+		box-shadow: none !important;
+		background: transparent !important;
 		width: var(--page-width);
 		height: var(--page-height);
-	}
-
-	.page-break {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
 		page-break-after: always;
-	}
-
-	.page {
-		max-width: var(--page-width);
-		min-height: var(--page-height);
-		display: grid;
-		place-content: center;
 	}
 
 	.card-grid {
 		display: grid;
 		width: fit-content;
-		height: fit-content;
+		margin: auto;
 		grid-template-columns: repeat(3, 1fr);
-		grid-template-rows: repeat(3, auto);
 		grid-gap: var(--card-margin);
+	}
+
+	.break-after-page {
+		page-break-after: always;
+	}
+
+	.break-before-page {
+		page-break-before: always;
 	}
 }
 
