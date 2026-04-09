@@ -170,9 +170,10 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Connive": "Maquinar",
 	"Exert": "Esforçar",
 	"Encore": "Bis",
+	"Changeling": "Morfolóide",
 };
 
-const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu"];
+const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand"];
 
 const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
 	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))
