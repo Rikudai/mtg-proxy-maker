@@ -172,7 +172,7 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Encore": "Bis",
 };
 
-const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library"];
+const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu"];
 
 const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
 	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))
@@ -193,17 +193,24 @@ export function enrichOracleText(text: string, lang: string = "en"): string {
 	const wordChars = "a-zA-ZáàâãéèêíïóôõöúçÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ";
 
 	// Replace keywords with *keyword* if they are not already wrapped
-	// We use a regex that avoids double-wrapping
+	// We avoid lookbehind for better cross-browser compatibility
 	for (const keyword of keywords) {
 		const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		// Match keyword not preceded or followed by * or other word characters
-		const regex = new RegExp(`(?<![\\*${wordChars}])${escapedKeyword}(?![\\*${wordChars}])`, "gi");
-		firstLine = firstLine.replace(regex, (match) => `*${match}*`);
+		const regex = new RegExp(`(^|[^\\*${wordChars}])${escapedKeyword}(?![\\*${wordChars}])`, "gi");
+		firstLine = firstLine.replace(regex, (match, before) => `${before || ""}*${match.slice(before ? before.length : 0)}*`);
 	}
+
+	// Special case for Ninjutsu (italic on first line)
+	firstLine = firstLine.replace(/\b(Ninjutsu)\b/gi, "_$1_");
 
 	lines[0] = firstLine;
 
-	return lines.join("\n");
+	// Ability words (italics for any line starting with "Word —")
+	const processedLines = lines.map(line => {
+		return line.replace(/^([A-Z][^—–\n]+?)\s*(?:—|–|--)/, (match, word) => `_${word}_ —`);
+	});
+
+	return processedLines.join("\n");
 }
 
 const MTG_TERMS_KEYS = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
@@ -421,10 +428,9 @@ export async function fetchCard(
 		lang: finalLang,
 		rarity: fr["rarity"],
 		set: fr["set"],
-		category: enCardFaceInfo["type_line"].toLowerCase().includes("planeswalker")
-			? "Planeswalker"
-			: "Regular",
-		loyalty: enCardFaceInfo["loyalty"],
+		...(enCardFaceInfo["type_line"].toLowerCase().includes("planeswalker")
+			? { category: "Planeswalker" as const, loyalty: enCardFaceInfo["loyalty"] }
+			: { category: "Regular" as const }),
 		overrideWithScanUrl,
 	};
 
@@ -476,10 +482,9 @@ export async function fetchCard(
 			lang: finalLang,
 			rarity: fr["rarity"],
 			set: fr["set"],
-			category: enReverseFaceInfo["type_line"].toLowerCase().includes("planeswalker")
-				? "Planeswalker"
-				: "Regular",
-			loyalty: enReverseFaceInfo["loyalty"],
+			...(enReverseFaceInfo["type_line"].toLowerCase().includes("planeswalker")
+				? { category: "Planeswalker" as const, loyalty: enReverseFaceInfo["loyalty"] }
+				: { category: "Regular" as const }),
 			overrideWithScanUrl,
 		} satisfies Card : "default",
 		...card,
@@ -504,7 +509,7 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 			};
 
 			if (card["type_line"]?.toLowerCase().includes("token")) {
-				const manaTypes = (card["colors"] ?? card["color_identity"]).flatMap(
+				const manaTypes = (card["colors"] ?? card["color_identity"] ?? []).flatMap(
 					manaLetterToType,
 				);
 				const manaCost = parseMana(card["mana_cost"]);
