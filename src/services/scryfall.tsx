@@ -172,8 +172,16 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Encore": "Bis",
 };
 
-const ALL_KEYWORDS_PT = Object.values(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
-const ALL_KEYWORDS_EN = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
+const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library"];
+
+const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
+	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))
+	.map(([_, pt]) => pt)
+	.sort((a, b) => b.length - a.length);
+
+const ALL_KEYWORDS_EN = Object.keys(MTG_TERMS_PT)
+	.filter(en => !EXCLUDED_FROM_BOLDING.includes(en))
+	.sort((a, b) => b.length - a.length);
 
 export function enrichOracleText(text: string, lang: string = "en"): string {
 	if (!text) return text;
