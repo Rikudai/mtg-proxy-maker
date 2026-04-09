@@ -97,7 +97,6 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Token": "Ficha",
 	"Tokens": "Fichas",
 	"Planeswalker": "Planeswalker",
-	"Spell": "Mágica",
 	"loyalty counter": "marcador de lealdade",
 	"charge counter": "marcador de carga",
 	"+1/+1 counter": "marcador +1/+1",
@@ -105,7 +104,6 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Deathtouch": "Toque Mortal",
 	"Defender": "Defensor",
 	"Double Strike": "Golpe Duplo",
-	"Enchant": "Encantar",
 	"Equip": "Equipar",
 	"First Strike": "Iniciativa",
 	"Flash": "Lampejo",
@@ -180,10 +178,11 @@ const ALL_KEYWORDS_EN = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.le
 export function enrichOracleText(text: string, lang: string = "en"): string {
 	if (!text) return text;
 
+	const lines = text.split("\n");
+	let firstLine = lines[0];
+
 	const keywords = lang.toLowerCase().startsWith("pt") ? ALL_KEYWORDS_PT : ALL_KEYWORDS_EN;
 	const wordChars = "a-zA-ZáàâãéèêíïóôõöúçÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ";
-
-	let enriched = text;
 
 	// Replace keywords with *keyword* if they are not already wrapped
 	// We use a regex that avoids double-wrapping
@@ -191,10 +190,12 @@ export function enrichOracleText(text: string, lang: string = "en"): string {
 		const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		// Match keyword not preceded or followed by * or other word characters
 		const regex = new RegExp(`(?<![\\*${wordChars}])${escapedKeyword}(?![\\*${wordChars}])`, "gi");
-		enriched = enriched.replace(regex, (match) => `*${match}*`);
+		firstLine = firstLine.replace(regex, (match) => `*${match}*`);
 	}
 
-	return enriched;
+	lines[0] = firstLine;
+
+	return lines.join("\n");
 }
 
 const MTG_TERMS_KEYS = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
