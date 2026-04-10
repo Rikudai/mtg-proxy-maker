@@ -12,7 +12,7 @@ import CardVerso from "./components/card/card-verso";
 import EditCardForm from "./components/edit-card-form";
 import Sidebar from "./components/sidebar";
 import { parseMtgo } from "./services/mtgo-parser";
-import { fetchCard } from "./services/scryfall";
+import { fetchCard, fetchCardsBulk } from "./services/scryfall";
 import { Card, getEmptyCard } from "./types/card";
 import toast, { Toaster } from "solid-toast";
 import { toPng } from 'html-to-image';
@@ -166,29 +166,59 @@ export default function App() {
 
 	async function getNewListFromMTGO(mtgoList: string, onError?: (name: string, message: string) => void) {
 		const parsedList = parseMtgo(mtgoList);
-		const tasks = parsedList.flatMap(({ name, number }) =>
-			[...new Array(number)].map((_, i) => ({ name, i }))
-		);
+		const uniqueNames = Array.from(new Set(parsedList.map(item => item.name)));
+		
+		const totalCardsToProcess = parsedList.reduce((acc, curr) => acc + (curr.number || 0), 0);
+		setImportProgress({ current: 0, total: totalCardsToProcess, cardName: "Iniciando importação em lote..." });
+
+		// Busca todas as cartas únicas em blocos de 50
+		const bulkResults = await fetchCardsBulk(uniqueNames, language(), (current, total, cardName) => {
+			// O progresso aqui é baseado em nomes únicos, vamos tentar estimar o progresso real ou apenas mostrar o nome
+			setImportProgress(prev => ({ 
+				current: Math.min(prev?.current || 0, totalCardsToProcess), 
+				total: totalCardsToProcess, 
+				cardName 
+			}));
+		});
+
+		// Cria um mapa para busca rápida
+		const cardMap = new Map<string, Card>();
+		bulkResults.forEach(card => cardMap.set(card.originalName.toLowerCase(), card));
 
 		const successes: Card[] = [];
-		setImportProgress({ current: 0, total: tasks.length, cardName: tasks[0]?.name || "Iniciando..." });
+		let processed = 0;
 
-		for (let i = 0; i < tasks.length; i++) {
-			const task = tasks[i];
-			setImportProgress({ current: i + 1, total: tasks.length, cardName: task.name });
-
-			try {
-				const card = await fetchCard(task.name, language(), task.i);
-				successes.push(card);
-			} catch (e) {
-				if (e instanceof CardError) {
-					console.error(e);
-					onError?.(task.name, e.message);
-				}
+		for (const item of parsedList) {
+			const baseCard = cardMap.get(item.name.toLowerCase());
+			
+			if (!baseCard) {
+				console.error(`Card not found in bulk results: ${item.name}`);
+				onError?.(item.name, "Não encontrada");
+				processed += item.number || 0;
+				continue;
 			}
 
-			if (i < tasks.length - 1) {
-				await new Promise(r => setTimeout(r, 150));
+			// Para cada quantidade, cria uma cópia com a variante correta
+			for (let i = 0; i < (item.number || 0); i++) {
+				processed++;
+				setImportProgress({ current: processed, total: totalCardsToProcess, cardName: item.name });
+
+				try {
+					// Se for a primeira cópia e for a variante 0 (padrão), usamos o baseCard
+					// Caso contrário, buscamos a variante específica (isso ainda requer fetch individual se i > 0, 
+					// mas para a maioria das cópias i=0 será o baseCard)
+					if (i === 0) {
+						successes.push(JSON.parse(JSON.stringify(baseCard)));
+					} else {
+						// Para cópias adicionais, podemos reutilizar o baseCard se não quisermos variantes diferentes,
+						// ou pedir a variante específica se o app suportar artes diferentes por cópia no import.
+						// Mantendo a compatibilidade com a lógica original:
+						const variantCard = await fetchCard(item.name, language(), i);
+						successes.push(variantCard);
+					}
+				} catch (e) {
+					if (e instanceof CardError) onError?.(item.name, e.message);
+				}
 			}
 		}
 

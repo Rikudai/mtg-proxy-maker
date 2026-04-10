@@ -9,40 +9,112 @@ import {
 	manaLetterToType as manaLetterToTypeMap, ManaType
 } from "../types/mana";
 
-const requestCache = new Map<string, Promise<any>>();
-async function fetchCachedJson(url: string): Promise<any> {
-	if (requestCache.has(url)) {
-		return requestCache.get(url)!;
+class RequestQueue {
+	private queue: (() => Promise<void>)[] = [];
+	private processing = false;
+	private lastRequestTime = 0;
+	private minDelay = 200; // Aumentado para 200ms para ser mais conservador
+
+	async add<T>(fn: () => Promise<T>): Promise<T> {
+		return new Promise((resolve, reject) => {
+			this.queue.push(async () => {
+				try {
+					const now = Date.now();
+					const elapsed = now - this.lastRequestTime;
+					if (elapsed < this.minDelay) {
+						await new Promise((r) => setTimeout(r, this.minDelay - elapsed));
+					}
+					const result = await fn();
+					this.lastRequestTime = Date.now();
+					resolve(result);
+				} catch (e) {
+					// Importante: atualizar o tempo mesmo em caso de erro para manter o gap
+					this.lastRequestTime = Date.now();
+					reject(e);
+				}
+			});
+			this.process();
+		});
 	}
 
-	const promise = fetch(url)
-		.then(async (r) => {
-			const json = await r.json().catch(() => null);
-			return json || { status: r.status };
-		})
-		.catch(async (e) => {
-			// CORS ou erro de rede — aguarda e tenta uma vez mais
-			console.warn("Network error (retrying in 300ms):", e);
-			await new Promise(r => setTimeout(r, 300));
-			return fetch(url)
-				.then(async (r) => {
-					const json = await r.json().catch(() => null);
-					return json || { status: r.status };
-				})
-				.catch((e2) => {
-					console.error("Network error:", e2);
-					return { status: 500 };
-				});
-		})
-		.then((result: any) => {
-			// Remove do cache se for erro, para permitir retry futuro
-			if (result?.status === 500) {
-				requestCache.delete(url);
+	private async process() {
+		if (this.processing) return;
+		this.processing = true;
+		try {
+			while (this.queue.length > 0) {
+				const task = this.queue.shift();
+				if (task) {
+					try {
+						await task();
+					} catch (e) {
+						// Ignora erro aqui, pois a Promise individual já foi rejeitada no add()
+					}
+				}
 			}
-			return result;
-		});
+		} finally {
+			this.processing = false;
+		}
+	}
+}
 
-	requestCache.set(url, promise);
+const scryfallQueue = new RequestQueue();
+const requestCache = new Map<string, Promise<any>>();
+
+async function fetchCachedJson(
+	url: string, 
+	retryCount = 0, 
+	options: RequestInit = {}
+): Promise<any> {
+	const cacheKey = options.body 
+		? `${url}:${options.method}:${options.body}` 
+		: url;
+
+	if (requestCache.has(cacheKey) && retryCount === 0) {
+		return requestCache.get(cacheKey)!;
+	}
+
+	const isScryfall = url.includes("scryfall.com");
+
+	const executeFetch = async () => {
+		try {
+			const response = await fetch(url, {
+				...options,
+				headers: {
+					"Accept": "application/json",
+					...(options.body ? { "Content-Type": "application/json" } : {}),
+					...(options.headers || {}),
+				}
+			});
+			
+			// Se o Scryfall retornar 429, esperamos um tempo maior antes do retry
+			if (response.status === 429 && isScryfall && retryCount < 4) {
+				const delay = 1000 * Math.pow(2, retryCount);
+				console.warn(`Scryfall rate limit hit (429). Retrying in ${delay}ms... (attempt ${retryCount + 1})`);
+				await new Promise(r => setTimeout(r, delay));
+				return fetchCachedJson(url, retryCount + 1, options);
+			}
+
+			const json = await response.json().catch(() => null);
+			return json || { status: response.status };
+		} catch (e) {
+			// Se falhou por CORS ou Rede, frequentemente é um 429 disfarçado
+			if (retryCount < 3) {
+				const delay = isScryfall ? 2000 * (retryCount + 1) : 300;
+				console.warn(`Network error fetching ${url} (potential rate limit/CORS). Retrying in ${delay}ms... (attempt ${retryCount + 1}):`, e);
+				await new Promise((r) => setTimeout(r, delay));
+				return fetchCachedJson(url, retryCount + 1, options);
+			}
+			console.error(`Network error fetching ${url} after multiple retries:`, e);
+			return { status: 500 };
+		}
+	};
+
+	const promise = isScryfall ? scryfallQueue.add(executeFetch) : executeFetch();
+
+	if (retryCount === 0) {
+		requestCache.set(cacheKey, promise);
+	}
+	
 	return promise;
 }
 export function parseMana(manaCostString: string = ""): ManaType[] {
@@ -171,9 +243,12 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Exert": "Esforçar",
 	"Encore": "Bis",
 	"Changeling": "Morfolóide",
+	"Sliver": "Fractius",
+	"Slivers": "Fractius",
+	"tapped": "virado",
 };
 
-const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand"];
+const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand", "Sliver", "Slivers"];
 
 const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
 	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))
@@ -231,24 +306,22 @@ function prepareMtgText(text: string, lang: string): { preparedText: string; pla
 		preparedText = preparedText.replace(regex, (match) => {
 			const isFirstUpper = match[0] === match[0].toUpperCase();
 			let translation = MTG_TERMS_PT[term];
+			
 			if (!isFirstUpper) {
 				translation = translation.toLowerCase();
 			}
-			const placeholderStr = `_P${placeholders.length}_`;
-			placeholders.push(translation);
-			return placeholderStr;
+			
+			// Usamos double brackets como placeholder semântico. 
+			// O Google Tradutor entende o sentido da palavra, mas o script consegue identificar.
+			return `[[${translation}]]`;
 		});
 	}
-	return { preparedText, placeholders };
+	return { preparedText, placeholders: [] };
 }
 
-function restoreMtgText(translatedText: string, placeholders: string[]): string {
-	let restored = translatedText;
-	for (let i = 0; i < placeholders.length; i++) {
-		const regex = new RegExp(`_\\s*P${i}\\s*_`, 'gi');
-		restored = restored.replace(regex, placeholders[i]);
-	}
-	return restored;
+function restoreMtgText(translatedText: string, _placeholders: string[]): string {
+	// Remove os delimitadores [[ ]] mantendo o conteúdo interno que o Google traduziu/manteve
+	return translatedText.replace(/\[\[\s*(.*?)\s*\]\]/g, '$1');
 }
 
 async function translateGoogle(text: string, targetLang: string): Promise<string> {
@@ -287,6 +360,179 @@ function getCardScanUrl(scryfallResult: any, { ifNecessary }: { ifNecessary: boo
 	}
 
 	return uris['large'] ?? uris['normal'] ?? uris['small']
+}
+
+export function mapScryfallToCard(scryfallCard: any, lang: string): Card {
+	const enCardFaceInfo = scryfallCard.layout === 'transform' && scryfallCard.card_faces?.length === 2 
+		? scryfallCard.card_faces[0] 
+		: scryfallCard;
+	
+	const colorsToUse: string[] = enCardFaceInfo["type_line"].toLowerCase().includes("land")
+		? scryfallCard["color_identity"]
+		: enCardFaceInfo["colors"] ?? scryfallCard["color_identity"];
+
+	const manaTypes = colorsToUse.flatMap(manaLetterToType);
+	const manaCost = parseMana(enCardFaceInfo["mana_cost"]);
+
+	const overrideWithScanUrl = getCardScanUrl(enCardFaceInfo, { ifNecessary: true }) ?? getCardScanUrl(scryfallCard, { ifNecessary: true });
+
+	const finalLang = scryfallCard["lang"] || "en";
+
+	const card: Card = {
+		title: enCardFaceInfo["printed_name"] || enCardFaceInfo["name"],
+		originalName: enCardFaceInfo["name"],
+		manaCost,
+		artUrl: enCardFaceInfo["image_uris"]?.["art_crop"],
+		totalVariants: 1, // Será atualizado depois se necessário
+		aspect: {
+			frame: parseCardFrame(enCardFaceInfo["type_line"]),
+			color: parseCardColor(
+				manaTypes,
+				enCardFaceInfo["type_line"].toLowerCase().includes("artifact") &&
+				!enCardFaceInfo["type_line"].toLowerCase().includes("vehicle"),
+				manaCost
+					.filter((type) => type != "colorless" && type != "x")
+					.every(isBiType),
+			),
+			legendary:
+				scryfallCard["frame_effects"]?.includes("legendary") ||
+				enCardFaceInfo["type_line"].toLowerCase().includes("legendary"),
+		},
+		typeText: enCardFaceInfo["printed_type_line"] || enCardFaceInfo["type_line"],
+		oracleText: enrichOracleText(enCardFaceInfo["printed_text"] || enCardFaceInfo["oracle_text"], finalLang),
+		flavorText: enCardFaceInfo["flavor_text"],
+		power: enCardFaceInfo["power"],
+		toughness: enCardFaceInfo["toughness"],
+		artist: enCardFaceInfo["artist"],
+		collectorNumber: scryfallCard["collector_number"],
+		lang: finalLang,
+		rarity: scryfallCard["rarity"],
+		set: scryfallCard["set"],
+		...(enCardFaceInfo["type_line"].toLowerCase().includes("planeswalker")
+			? { category: "Planeswalker" as const, loyalty: enCardFaceInfo["loyalty"] }
+			: { category: "Regular" as const }),
+		overrideWithScanUrl,
+	};
+
+	if (scryfallCard.layout === 'transform' && scryfallCard.card_faces?.length === 2) {
+		const enReverseFaceInfo = scryfallCard.card_faces[1];
+		card.verso = {
+			title: enReverseFaceInfo["printed_name"] || enReverseFaceInfo["name"],
+			originalName: enReverseFaceInfo["name"],
+			manaCost,
+			artUrl: enReverseFaceInfo["image_uris"]?.["art_crop"],
+			totalVariants: 1,
+			aspect: {
+				frame: parseCardFrame(enReverseFaceInfo["type_line"]),
+				color: parseCardColor(
+					manaTypes,
+					enReverseFaceInfo["type_line"].toLowerCase().includes("artifact") &&
+					!enReverseFaceInfo["type_line"].toLowerCase().includes("vehicle"),
+					manaCost
+						.filter((type) => type != "colorless" && type != "x")
+						.every(isBiType),
+				),
+				legendary:
+					scryfallCard["frame_effects"]?.includes("legendary") ||
+					enReverseFaceInfo["type_line"].toLowerCase().includes("legendary"),
+			},
+			typeText: enReverseFaceInfo["printed_type_line"] || enReverseFaceInfo["type_line"],
+			oracleText: enrichOracleText(enReverseFaceInfo["printed_text"] || enReverseFaceInfo["oracle_text"], finalLang),
+			flavorText: enReverseFaceInfo["flavor_text"],
+			power: enReverseFaceInfo["power"],
+			toughness: enReverseFaceInfo["toughness"],
+			artist: enReverseFaceInfo["artist"],
+			collectorNumber: scryfallCard["collector_number"],
+			lang: finalLang,
+			rarity: scryfallCard["rarity"],
+			set: scryfallCard["set"],
+			...(enReverseFaceInfo["type_line"].toLowerCase().includes("planeswalker")
+				? { category: "Planeswalker" as const, loyalty: enReverseFaceInfo["loyalty"] }
+				: { category: "Regular" as const }),
+			overrideWithScanUrl,
+		} satisfies Card;
+	}
+
+	return card;
+}
+
+export async function fetchCardsCollection(names: string[]): Promise<any[]> {
+	if (names.length === 0) return [];
+	
+	const identifiers = names.map(name => ({ name }));
+	const response = await fetchCachedJson("https://api.scryfall.com/cards/collection", 0, {
+		method: "POST",
+		body: JSON.stringify({ identifiers })
+	});
+
+	return response.data || [];
+}
+
+export async function fetchCardsBulk(
+	names: string[], 
+	lang = "en", 
+	onProgress?: (current: number, total: number, cardName: string) => void
+): Promise<Card[]> {
+	const chunks = [];
+	for (let i = 0; i < names.length; i += 50) {
+		chunks.push(names.slice(i, i + 50));
+	}
+
+	const allCards: Card[] = [];
+	let processedCount = 0;
+
+	for (const chunk of chunks) {
+		const scryfallResults = await fetchCardsCollection(chunk);
+		
+		for (let i = 0; i < chunk.length; i++) {
+			const name = chunk[i];
+			const scryfallCard = scryfallResults[i];
+			processedCount++;
+			
+			if (onProgress) {
+				onProgress(processedCount, names.length, name);
+			}
+
+			if (!scryfallCard || scryfallCard.object === "error") {
+				// Fallback para fetch individual se não achou na collection (ou erro)
+				// Isso garante que queries complexas (tokens etc) ainda funcionem
+				try {
+					const card = await fetchCard(name, lang);
+					allCards.push(card);
+				} catch (e) {
+					console.error(`Failed to fetch card ${name}:`, e);
+				}
+				continue;
+			}
+
+			// Mapeia a carta básica
+			const card = mapScryfallToCard(scryfallCard, lang);
+			
+			// Busca variantes para saber o total disponível (necessário para o contador de artes)
+			const variants = await fetchVariants(card.originalName);
+			card.totalVariants = variants.length;
+			if (card.verso && typeof card.verso !== "string") card.verso.totalVariants = variants.length;
+
+			// Se o idioma não for inglês e a carta veio em inglês, tentamos traduzir
+			if (lang !== "en" && scryfallCard.lang === "en") {
+				card.title = await translateGoogle(card.title, lang);
+				card.typeText = await translateGoogle(card.typeText, lang);
+				card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, lang), lang);
+				if (card.flavorText) card.flavorText = await translateGoogle(card.flavorText, lang);
+				
+				if (card.verso && typeof card.verso !== "string") {
+					card.verso.title = await translateGoogle(card.verso.title, lang);
+					card.verso.typeText = await translateGoogle(card.verso.typeText, lang);
+					card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, lang), lang);
+					if (card.verso.flavorText) card.verso.flavorText = await translateGoogle(card.verso.flavorText, lang);
+				}
+			}
+
+			allCards.push(card);
+		}
+	}
+
+	return allCards;
 }
 
 export async function fetchCard(
@@ -335,111 +581,54 @@ export async function fetchCard(
 	}
 
 	const variants = await fetchVariants(en["name"]);
-
-	const biFaced = en['layout'] == 'transform' && 'card_faces' in en && en['card_faces'].length == 2
-	console.debug('biFaced', biFaced)
-	const frCardFaceInfo = biFaced ? fr['card_faces'][0] : fr
-	const enCardFaceInfo = biFaced ? en['card_faces'][0] : en
-	const frReverseFaceInfo = biFaced ? fr['card_faces'][1] : fr
-	const enReverseFaceInfo = biFaced ? en['card_faces'][1] : en
-
-	const colorsToUse: string[] = enCardFaceInfo["type_line"].toLowerCase().includes("land")
-		? frCardFaceInfo["color_identity"]
-		: frCardFaceInfo["colors"] ?? frCardFaceInfo["color_identity"];
-
-	const manaTypes = colorsToUse.flatMap(manaLetterToType);
-
-	const manaCost = parseMana(enCardFaceInfo["mana_cost"]);
-
-	const overrideWithScanUrl = getCardScanUrl(frCardFaceInfo, { ifNecessary: true }) ?? getCardScanUrl(enCardFaceInfo, { ifNecessary: true })
-
-	console.debug('en', enCardFaceInfo)
-	console.debug('fr', frCardFaceInfo)
-
-	let primaryText = {
-		title: frCardFaceInfo["printed_name"] || frCardFaceInfo["name"],
-		typeText: frCardFaceInfo["printed_type_line"] || frCardFaceInfo["type_line"] || enCardFaceInfo["printed_type_line"] || enCardFaceInfo["type_line"],
-		oracleText: frCardFaceInfo["printed_text"] || frCardFaceInfo["oracle_text"],
-		flavorText: frCardFaceInfo["flavor_text"]
-	};
-
-	let reverseText = biFaced ? {
-		title: frReverseFaceInfo["printed_name"] || frReverseFaceInfo["name"],
-		typeText: frReverseFaceInfo["printed_type_line"] || frReverseFaceInfo["type_line"] || enReverseFaceInfo["printed_type_line"] || enReverseFaceInfo["type_line"],
-		oracleText: frReverseFaceInfo["printed_text"] || frReverseFaceInfo["oracle_text"],
-		flavorText: frReverseFaceInfo["flavor_text"]
-	} : null;
-
 	const targetLang = lang.startsWith("pt") ? "pt" : lang;
-	// Precisa traduzir se:
-	// 1. O idioma alvo não é inglês, E
-	// 2. A Scryfall não tem versão no idioma (404), OU
-	//    A versão localizada está em inglês (fallback), OU
-	//    A versão localizada não tem `printed_text` (usa oracle_text em inglês)
+	
+	// Mapeia a carta (usa a versão EN como base para estrutura, mas FR para os textos se disponíveis)
+	const card = mapScryfallToCard(en, lang);
+	
+	// Atualiza com textos em PT se existirem
+	const frCardFaceInfo = en['layout'] == 'transform' && 'card_faces' in en && en['card_faces'].length == 2 ? fr['card_faces'][0] : fr;
+	const frReverseFaceInfo = en['layout'] == 'transform' && 'card_faces' in en && en['card_faces'].length == 2 ? fr['card_faces'][1] : fr;
+	
+	card.title = frCardFaceInfo["printed_name"] || frCardFaceInfo["name"];
+	card.typeText = frCardFaceInfo["printed_type_line"] || frCardFaceInfo["type_line"];
+	card.oracleText = enrichOracleText(frCardFaceInfo["printed_text"] || frCardFaceInfo["oracle_text"], fr["lang"]);
+	card.flavorText = frCardFaceInfo["flavor_text"];
+	card.artist = frCardFaceInfo["artist"];
+	card.totalVariants = variants.length;
+
+	if (card.verso && typeof card.verso !== "string") {
+		card.verso.title = frReverseFaceInfo["printed_name"] || frReverseFaceInfo["name"];
+		card.verso.typeText = frReverseFaceInfo["printed_type_line"] || frReverseFaceInfo["type_line"];
+		card.verso.oracleText = enrichOracleText(frReverseFaceInfo["printed_text"] || frReverseFaceInfo["oracle_text"], fr["lang"]);
+		card.verso.flavorText = frReverseFaceInfo["flavor_text"];
+		card.verso.totalVariants = variants.length;
+	}
+
 	const hasPrintedText = !!frCardFaceInfo["printed_text"];
 	const needsTranslation = lang !== "en" && (
 		frCardsStatus === 404 ||
-		frCardFaceInfo["lang"] === "en" ||
+		fr["lang"] === "en" ||
 		!hasPrintedText
 	);
 	
 	if (needsTranslation) {
-		primaryText.title = await translateGoogle(primaryText.title, targetLang);
-		primaryText.typeText = await translateGoogle(primaryText.typeText, targetLang);
-		primaryText.oracleText = await translateGoogle(primaryText.oracleText, targetLang);
-		primaryText.flavorText = await translateGoogle(primaryText.flavorText, targetLang);
+		card.title = await translateGoogle(card.title, targetLang);
+		card.typeText = await translateGoogle(card.typeText, targetLang);
+		card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, targetLang), lang);
+		card.flavorText = await translateGoogle(card.flavorText ?? "", targetLang);
 		
-		if (reverseText) {
-			reverseText.title = await translateGoogle(reverseText.title, targetLang);
-			reverseText.typeText = await translateGoogle(reverseText.typeText, targetLang);
-			reverseText.oracleText = await translateGoogle(reverseText.oracleText, targetLang);
-			reverseText.flavorText = await translateGoogle(reverseText.flavorText, targetLang);
+		if (card.verso && typeof card.verso !== "string") {
+			card.verso.title = await translateGoogle(card.verso.title, targetLang);
+			card.verso.typeText = await translateGoogle(card.verso.typeText, targetLang);
+			card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, targetLang), lang);
+			card.verso.flavorText = await translateGoogle(card.verso.flavorText ?? "", targetLang);
 		}
 	}
-
-	const finalLang = needsTranslation ? lang : fr["lang"];
-
-	const card: Card = {
-		title: primaryText.title,
-		originalName: enCardFaceInfo["name"],
-		manaCost,
-		artUrl: enCardFaceInfo["image_uris"]?.["art_crop"],
-		totalVariants: variants.length,
-		aspect: {
-			frame: parseCardFrame(enCardFaceInfo["type_line"]),
-			color: parseCardColor(
-				manaTypes,
-				enCardFaceInfo["type_line"].toLowerCase().includes("artifact") &&
-				!enCardFaceInfo["type_line"].toLowerCase().includes("vehicle"),
-				manaCost
-					.filter((type) => type != "colorless" && type != "x")
-					.every(isBiType),
-			),
-			legendary:
-				en["frame_effects"]?.includes("legendary") ||
-				enCardFaceInfo["type_line"].toLowerCase().includes("legendary"),
-		},
-		typeText: primaryText.typeText,
-		oracleText: enrichOracleText(primaryText.oracleText, finalLang),
-		flavorText: primaryText.flavorText,
-		power: frCardFaceInfo["power"],
-		toughness: frCardFaceInfo["toughness"],
-		artist: frCardFaceInfo["artist"],
-		collectorNumber: fr["collector_number"],
-		lang: finalLang,
-		rarity: fr["rarity"],
-		set: fr["set"],
-		...(enCardFaceInfo["type_line"].toLowerCase().includes("planeswalker")
-			? { category: "Planeswalker" as const, loyalty: enCardFaceInfo["loyalty"] }
-			: { category: "Regular" as const }),
-		overrideWithScanUrl,
-	};
 
 	// Seleciona a variante escolhida pelo usuário
 	let selectedVariant: Partial<Card> = variants.length > 0 ? (variants[variant % variants.length] ?? {}) : {};
 
-	// Se a variante tem texto próprio (é um token), e o idioma alvo não é inglês,
-	// precisamos traduzir esses campos pois fetchVariants sempre busca em inglês
 	if (lang !== "en" && selectedVariant.typeText) {
 		selectedVariant = {
 			...selectedVariant,
@@ -453,41 +642,6 @@ export async function fetchCard(
 	}
 
 	return {
-		verso: biFaced ? {
-			title: reverseText!.title,
-			originalName: enReverseFaceInfo["name"],
-			manaCost,
-			artUrl: enReverseFaceInfo["image_uris"]?.["art_crop"],
-			totalVariants: variants.length,
-			aspect: {
-				frame: parseCardFrame(enReverseFaceInfo["type_line"]),
-				color: parseCardColor(
-					manaTypes,
-					enReverseFaceInfo["type_line"].toLowerCase().includes("artifact") &&
-					!enReverseFaceInfo["type_line"].toLowerCase().includes("vehicle"),
-					manaCost
-						.filter((type) => type != "colorless" && type != "x")
-						.every(isBiType),
-				),
-				legendary:
-					en["frame_effects"]?.includes("legendary") ||
-					enReverseFaceInfo["type_line"].toLowerCase().includes("legendary"),
-			},
-			typeText: reverseText!.typeText,
-			oracleText: enrichOracleText(reverseText!.oracleText, finalLang),
-			flavorText: reverseText!.flavorText,
-			power: frReverseFaceInfo["power"],
-			toughness: frReverseFaceInfo["toughness"],
-			artist: frReverseFaceInfo["artist"],
-			collectorNumber: fr["collector_number"],
-			lang: finalLang,
-			rarity: fr["rarity"],
-			set: fr["set"],
-			...(enReverseFaceInfo["type_line"].toLowerCase().includes("planeswalker")
-				? { category: "Planeswalker" as const, loyalty: enReverseFaceInfo["loyalty"] }
-				: { category: "Regular" as const }),
-			overrideWithScanUrl,
-		} satisfies Card : "default",
 		...card,
 		...selectedVariant,
 	} as Card;
