@@ -7,6 +7,7 @@ type ArtProps = {
 	category: Card["category"];
 	isLoading?: boolean;
 	onArtClick?: () => void;
+	onLoaded?: () => void;
 };
 
 const style: Record<Card["category"], JSX.CSSProperties> = {
@@ -58,13 +59,24 @@ export default function Art(props: ArtProps) {
 			{/* Imagem real — renderizada mas invisível até carregar */}
 			<Show when={!props.isLoading && !!props.url}>
 				<img
+					ref={(el) => {
+						if (el && el.complete) {
+							setImgLoaded(true);
+							props.onLoaded?.();
+						}
+					}}
 					style={{
 						...style[props.category],
 						opacity: imgLoaded() ? 1 : 0,
 						transition: "opacity 0.4s ease",
 					}}
 					src={props.url}
-					onLoad={() => setImgLoaded(true)}
+					onLoad={() => {
+						if (!imgLoaded()) {
+							setImgLoaded(true);
+							props.onLoaded?.();
+						}
+					}}
 					onClick={props.onArtClick}
 				/>
 			</Show>

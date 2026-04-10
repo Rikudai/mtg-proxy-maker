@@ -21,6 +21,9 @@ export type Card = {
 	toughness?: string;
 	typeText: string;
 	verso?: "default" | string | Card;
+	titleFontSize?: number;
+	oracleFontSize?: number;
+	snapshotUrl?: string;
 } & (
 		| {
 			category: "Regular";

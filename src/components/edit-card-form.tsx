@@ -107,11 +107,11 @@ export default function EditCardForm(props: {
 
 					<div class="relative group">
 						<div class={`transition-all duration-500 ${showBack() ? 'opacity-0 scale-95 pointer-events-none absolute inset-0' : 'opacity-100 scale-100'}`}>
-							<CardComponent card={props.card()} onArtClick={handleArtClick} />
+							<CardComponent card={props.card()} onArtClick={handleArtClick} selected={true} />
 						</div>
 						<Show when={props.card().verso}>
 							<div class={`transition-all duration-500 ${!showBack() ? 'opacity-0 scale-95 pointer-events-none absolute inset-0' : 'opacity-100 scale-100'}`}>
-								<CardVerso verso={props.card().verso} onArtClick={handleArtClick} />
+								<CardVerso verso={props.card().verso} onArtClick={handleArtClick} selected={true} />
 							</div>
 						</Show>
 						

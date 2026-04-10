@@ -14,6 +14,7 @@ type SidebarProps = {
 	onClearList: () => void;
 	onRawListImport: (rawCardList: string) => void;
 	onDownloadZip?: () => Promise<void>;
+	onPrint?: () => void;
 	isMTGOImporting?: boolean;
 };
 
@@ -220,7 +221,7 @@ export default function Sidebar(props: SidebarProps) {
 							<button
 								type="button"
 								class="flex flex-col items-center justify-center gap-2 p-3 rounded-xl bg-mtg-stone-900 border border-mtg-white/10 text-mtg-white hover:bg-mtg-white hover:text-mtg-black transition-all duration-300"
-								onClick={() => print()}
+								onClick={() => props.onPrint?.() || print()}
 							>
 								<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14" fill="currentColor"/></svg>
 								<span class="text-[10px] font-bold uppercase">Print</span>

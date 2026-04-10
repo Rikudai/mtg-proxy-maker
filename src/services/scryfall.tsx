@@ -1,4 +1,5 @@
 import { match, P } from "ts-pattern";
+import { get as idbGet, set as idbSet } from "idb-keyval";
 import { parseCardColor, parseCardFrame } from "../types/backgrounds";
 import { Card } from "../types/card";
 import { CardError } from "../types/error";
@@ -69,11 +70,24 @@ async function fetchCachedJson(
 		? `${url}:${options.method}:${options.body}` 
 		: url;
 
+	const isScryfall = url.includes("scryfall.com");
+
 	if (requestCache.has(cacheKey) && retryCount === 0) {
 		return requestCache.get(cacheKey)!;
 	}
 
-	const isScryfall = url.includes("scryfall.com");
+	// Try persistent cache if it's a Scryfall result (longer lived)
+	if (isScryfall && retryCount === 0) {
+		try {
+			const persisted = await idbGet(cacheKey);
+			if (persisted) {
+				requestCache.set(cacheKey, Promise.resolve(persisted));
+				return persisted;
+			}
+		} catch (e) {
+			console.warn("Persistent cache read failed", e);
+		}
+	}
 
 	const executeFetch = async () => {
 		try {
@@ -113,6 +127,14 @@ async function fetchCachedJson(
 
 	if (retryCount === 0) {
 		requestCache.set(cacheKey, promise);
+		// Persist successful Scryfall results
+		if (isScryfall) {
+			promise.then(data => {
+				if (data && !data.error && (!data.status || data.status < 400)) {
+					idbSet(cacheKey, data).catch(e => console.warn("Persistent cache write failed", e));
+				}
+			});
+		}
 	}
 	
 	return promise;
@@ -248,7 +270,7 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"tapped": "virado",
 };
 
-const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand", "Sliver", "Slivers"];
+const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand", "Sliver", "Slivers", "Planeswalker"];
 
 const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
 	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))

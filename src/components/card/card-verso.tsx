@@ -7,6 +7,7 @@ import cardBack from "../../assets/images/card-back.png";
 export default function CardVerso(props: { 
 	verso: Card["verso"];
 	onArtClick?: () => void;
+	selected?: boolean;
 }) {
 	return (
 		<Switch
@@ -54,7 +55,7 @@ export default function CardVerso(props: {
 			</Match>
 
 			<Match when={props.verso && typeof props.verso == "object"}>
-				<CardComponent card={props.verso as Card} onArtClick={props.onArtClick} />
+				<CardComponent card={props.verso as Card} onArtClick={props.onArtClick} selected={props.selected} />
 			</Match>
 		</Switch>
 	);

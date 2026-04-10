@@ -4,7 +4,9 @@ import {
 	createSignal, For, untrack,
 	Show,
 	onMount,
-	onCleanup
+	onCleanup,
+	createMemo,
+	batch
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import CardComponent from "./components/card/card";
@@ -73,8 +75,18 @@ export default function App() {
 		localStorage.getItem("printVersos") == "true",
 	);
 	const [isMTGOImporting, setIsMTGOImporting] = createSignal(false);
+	const [isOptimizing, setIsOptimizing] = createSignal(false);
+	const [isBulkOptimizing, setIsBulkOptimizing] = createSignal(false);
+	const [primingDone, setPrimingDone] = createSignal(false);
+	const [isTabActive, setIsTabActive] = createSignal(true);
 	const [importProgress, setImportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
+	const [renderBatch, setRenderBatch] = createSignal<number[]>([]);
 	const [exportProgress, setExportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
+	const [isExportingMode, setIsExportingMode] = createSignal(false);
+	const [isPrintMode, setIsPrintMode] = createSignal(false);
+	const [isPreparingPrint, setIsPreparingPrint] = createSignal(false);
+	const [localEditingCard, setLocalEditingCard] = createSignal<Card | null>(null);
+	const isHighQualityMode = () => isPrintMode() || isExportingMode();
 
 	const [cardList, setCardList] = createResourceStore<Card[]>([], () =>
 		getCardList(),
@@ -90,16 +102,37 @@ export default function App() {
 	const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
 	const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
 
-	const pages = () => chunkArray(cardList().value, 9);
+	const pages = createMemo(() => chunkArray(cardList().value, 9));
 
 	const selectedCard = () =>
 		selectedCardIndex() !== null
 			? cardList().value[selectedCardIndex()!]
 			: null;
 
-	const setSelectedCard = (fn: (prev: Card) => Card) => {
-		if (selectedCardIndex() == null || selectedCard() == null) return;
-		setCardList(selectedCardIndex()!, fn(selectedCard()!));
+	const handleOpenInspector = (index: number) => {
+		const card = cardList().value[index];
+		if (card) {
+			setLocalEditingCard(JSON.parse(JSON.stringify(card)) as Card);
+			setSelectedCardIndex(index);
+		}
+	};
+
+	const handleSaveEdit = () => {
+		const index = selectedCardIndex();
+		const edited = localEditingCard();
+		if (index !== null && edited) {
+			setCardList(index, produce((prev) => {
+				Object.assign(prev, edited);
+				prev.snapshotUrl = undefined;
+			}));
+			setSelectedCardIndex(null);
+			setLocalEditingCard(null);
+		}
+	};
+
+	const handleCancelEdit = () => {
+		setSelectedCardIndex(null);
+		setLocalEditingCard(null);
 	};
 
 	const handleDragStart = (e: DragEvent, index: number) => {
@@ -132,6 +165,49 @@ export default function App() {
 		e.preventDefault();
 		handleDragEnd();
 	};
+
+	createEffect(() => {
+		if (cardList().value.length === 0 || isMTGOImporting() || !isTabActive()) return;
+
+		const needsSnapshot = cardList().value
+			.map((c, i) => ({ c, i }))
+			.filter((x) => !x.c.snapshotUrl && !x.c.isLoading);
+
+		if (needsSnapshot.length > 0) {
+			const batchIds = needsSnapshot.slice(0, 9).map((x) => x.i);
+
+			// Priming phase: scroll to bottom once per bulk operation
+			if (isBulkOptimizing() && !primingDone()) {
+				const container = document.querySelector('.pages');
+				if (container) {
+					container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+				}
+				setTimeout(() => setPrimingDone(true), 2000);
+				return;
+			}
+			
+			setIsOptimizing(true);
+			
+			// Auto-scroll to the current sheet
+			const sheetIndex = Math.floor(batchIds[0] / 9);
+			const sheetElement = document.getElementById(`sheet-${sheetIndex}`);
+			if (sheetElement) {
+				sheetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			}
+			
+			// Delay slightly longer to allow scroll and content-visibility to render fully
+			setTimeout(() => {
+				if (isTabActive()) {
+					setRenderBatch(batchIds);
+				}
+			}, 1000);
+		} else {
+			setIsOptimizing(false);
+			setIsBulkOptimizing(false);
+			setPrimingDone(false);
+			setRenderBatch([]);
+		}
+	});
 
 	async function fetchAndAddCard(name: string, variant: number = 0) {
 		const placeholderId = `loading-${Date.now()}-${Math.random()}`;
@@ -208,7 +284,7 @@ export default function App() {
 					// Caso contrário, buscamos a variante específica (isso ainda requer fetch individual se i > 0, 
 					// mas para a maioria das cópias i=0 será o baseCard)
 					if (i === 0) {
-						successes.push(JSON.parse(JSON.stringify(baseCard)));
+						successes.push(JSON.parse(JSON.stringify(baseCard)) as Card);
 					} else {
 						// Para cópias adicionais, podemos reutilizar o baseCard se não quisermos variantes diferentes,
 						// ou pedir a variante específica se o app suportar artes diferentes por cópia no import.
@@ -230,7 +306,7 @@ export default function App() {
 		localStorage.removeItem("cardList");
 		if (urlCardList) {
 			window.history.replaceState(null, "", "/");
-			return getNewListFromMTGO(decodeURI(urlCardList));
+			return getNewListFromMTGO(decodeURIComponent(urlCardList));
 		} else {
 			return [];
 		}
@@ -242,6 +318,16 @@ export default function App() {
 	});
 
 	onMount(() => {
+		const handleVisibilityChange = () => {
+			setIsTabActive(document.visibilityState === 'visible');
+		};
+		const handleBeforePrint = () => setIsPrintMode(true);
+		const handleAfterPrint = () => setIsPrintMode(false);
+
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('beforeprint', handleBeforePrint);
+		window.addEventListener('afterprint', handleAfterPrint);
+
 		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
 			const currentCards = untrack(() => cardList().value);
 			if (currentCards && currentCards.length > 0) {
@@ -250,7 +336,12 @@ export default function App() {
 			}
 		};
 		window.addEventListener("beforeunload", handleBeforeUnload);
-		onCleanup(() => window.removeEventListener("beforeunload", handleBeforeUnload));
+		onCleanup(() => {
+			window.removeEventListener("beforeunload", handleBeforeUnload);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('beforeprint', handleBeforePrint);
+			window.removeEventListener('afterprint', handleAfterPrint);
+		});
 	});
 
 	createEffect(function updateCardsLang() {
@@ -269,7 +360,8 @@ export default function App() {
 				return;
 			}
 
-			setExportProgress({ current: 0, total: elements.length, cardName: "Preparando exportação..." });
+			setIsExportingMode(true);
+			setExportProgress({ current: 0, total: elements.length, cardName: "Preparando exportação de alta fidelidade..." });
 			const nameCounts: Record<string, number> = {};
 
 			for (let i = 0; i < elements.length; i++) {
@@ -277,7 +369,11 @@ export default function App() {
 				const baseName = node.dataset.name || "Card";
 				setExportProgress({ current: i + 1, total: elements.length, cardName: baseName });
 
-				const blob = await toPng(node, { pixelRatio: 2, cacheBust: true });
+				// Wait for high-res render to be ready (fonts might need to recalculate)
+				await new Promise(r => setTimeout(r, 600)); 
+				await document.fonts.ready;
+
+				const blob = await toPng(node, { pixelRatio: 4, cacheBust: true });
 				const base64Data = blob.replace(/^data:image\/png;base64,/, "");
 
 				nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
@@ -289,14 +385,25 @@ export default function App() {
 
 			setExportProgress({ current: elements.length, total: elements.length, cardName: "Comprimindo arquivo ZIP..." });
 			const content = await zip.generateAsync({ type: 'blob' });
-			saveAs(content, "mtg-proxies.zip");
+			saveAs(content, "mtg-proxies-high-res.zip");
 			setExportProgress(null);
+			setIsExportingMode(false);
 			toast.success("Download do pacote ZIP concluído!");
 		} catch (error) {
 			console.error("Failed to generate zip", error);
 			setExportProgress(null);
+			setIsExportingMode(false);
 			toast.error("Desculpe, ocorreu um erro ao gerar o arquivo ZIP.");
 		}
+	}
+
+	async function handlePrint() {
+		setIsPreparingPrint(true);
+		// Force High Quality Mode (reactive via isHighQualityMode)
+		// Wait 5 seconds for all cards to render live at high res
+		await new Promise(r => setTimeout(r, 5000));
+		window.print();
+		setIsPreparingPrint(false);
 	}
 
 	return (
@@ -308,6 +415,8 @@ export default function App() {
 					printVersos={printVersos()} setPrintVersos={setPrintVersos}
 					onAddCard={fetchAndAddCard}
 					isMTGOImporting={isMTGOImporting()}
+					onDownloadZip={extractZip}
+					onPrint={handlePrint}
 					onRawListImport={async (rawList) => {
 						setIsMTGOImporting(true); setImportErrors([]);
 						const totalToImport = parseMtgo(rawList).reduce((acc, curr) => acc + (curr?.number || 0), 0);
@@ -332,10 +441,10 @@ export default function App() {
 									"letter-spacing": "0.05em"
 								}
 							});
+							if (newList.length > 0) setIsBulkOptimizing(true);
 							if (importErrors().length > 0) setShowErrorModal(true);
 						} finally { setIsMTGOImporting(false); setImportProgress(null); }
 					}}
-					onDownloadZip={extractZip}
 				/>
 			</div>
 
@@ -355,7 +464,10 @@ export default function App() {
 					<div class="flex flex-col items-center gap-12 print:gap-0 print:block">
 						<For each={pages()}>
 							{(page, pageIndex) => (
-								<div class="page-container relative group/page print:m-0 print:border-none print:shadow-none print:bg-transparent">
+								<div 
+									id={`sheet-${pageIndex()}`}
+									class="page-container relative group/page print:m-0 print:border-none print:shadow-none print:bg-transparent"
+								>
 									<div class="absolute -top-8 left-0 text-[10px] font-bold uppercase tracking-[0.3em] text-mtg-stone-600 print:hidden">
 										Sheet #{pageIndex() + 1}
 									</div>
@@ -378,8 +490,15 @@ export default function App() {
 															<CardComponent
 																id={`card-export-${globalIndex()}`}
 																card={card}
-																onClick={() => setSelectedCardIndex(globalIndex())}
+																onClick={() => handleOpenInspector(globalIndex())}
 																selected={globalIndex() == selectedCardIndex()}
+																shouldRender={renderBatch().includes(globalIndex())}
+																isHighQuality={isHighQualityMode()}
+																onUpdate={(updates) => {
+																	setCardList(globalIndex(), produce((prev) => {
+																		Object.assign(prev, updates);
+																	}));
+																}}
 															/>
 														</div>
 													</div>
@@ -424,23 +543,47 @@ export default function App() {
 				</Show>
 			</div>
 
-			<Show when={selectedCard()}>
+			<Show when={localEditingCard()}>
 				{(card) => (
-					<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-mtg-black/80 print:hidden backdrop-blur-sm">
-						<div class="glass max-w-4xl w-full max-h-[90vh] overflow-hidden rounded-3xl shadow-glass border border-mtg-white/10 flex flex-col bg-mtg-black">
-							<div class="flex items-center justify-between p-6 border-b border-mtg-white/10 bg-mtg-stone-900">
-								<h2 class="text-xl font-beleren tracking-widest uppercase text-mtg-gold">Card Inspector</h2>
-								<button onClick={() => setSelectedCardIndex(null)} class="p-2 rounded-full bg-mtg-stone-800 hover:bg-mtg-red/20 text-mtg-stone-400 hover:text-mtg-red transition-colors">
-									<svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6 12 12"/></svg>
+					<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-mtg-black/90 print:hidden backdrop-blur-md">
+						<div class="glass max-w-4xl w-full max-h-[90vh] overflow-hidden rounded-[2.5rem] shadow-glass border border-mtg-white/10 flex flex-col bg-mtg-black">
+							<div class="flex items-center justify-between p-8 border-b border-mtg-white/10 bg-mtg-stone-900/50">
+								<div class="flex flex-col">
+									<h2 class="text-2xl font-beleren tracking-[0.2em] uppercase text-mtg-gold">Card Inspector</h2>
+									<p class="text-[10px] text-mtg-stone-500 uppercase tracking-widest font-bold mt-1">Sintonizando detalhes da carta</p>
+								</div>
+								<button onClick={handleCancelEdit} class="group relative w-10 h-10 flex items-center justify-center rounded-xl bg-mtg-stone-800/50 hover:bg-mtg-red transition-all duration-300">
+									<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-mtg-stone-400 group-hover:text-white transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
 								</button>
 							</div>
-							<div class="overflow-y-auto p-6 flex-1 custom-scrollbar">
+							
+							<div class="overflow-y-auto p-0 flex-1 custom-scrollbar">
 								<EditCardForm
-									card={card} setCard={setSelectedCard}
-									onRemoveCard={() => { setCardList(produce((list: Card[]) => { list.splice(selectedCardIndex()!, 1); })); setSelectedCardIndex(null); }}
-									onDuplicateCard={() => { const cardToDuplicate = JSON.parse(JSON.stringify(card())) as Card; setCardList(produce((list: Card[]) => { list.push(cardToDuplicate); })); setSelectedCardIndex(cardList().value.length - 1); }}
+									card={card} 
+									setCard={(fn) => setLocalEditingCard(fn(localEditingCard()!))}
+									onRemoveCard={() => { setCardList(produce((list: Card[]) => { list.splice(selectedCardIndex()!, 1); })); handleCancelEdit(); }}
+									onDuplicateCard={() => { 
+										const cardToDuplicate = JSON.parse(JSON.stringify(localEditingCard())) as Card; 
+										setCardList(produce((list: Card[]) => { list.push(cardToDuplicate); })); 
+										handleCancelEdit();
+									}}
 									onSetCardDefaultVerso={setDefaultVerso}
 								/>
+							</div>
+
+							<div class="flex items-center justify-end gap-4 p-6 border-t border-mtg-white/10 bg-mtg-stone-900/50">
+								<button 
+									onClick={handleCancelEdit}
+									class="px-8 py-3 rounded-xl text-mtg-stone-400 font-bold text-xs uppercase tracking-widest hover:text-white transition-all"
+								>
+									Cancelar
+								</button>
+								<button 
+									onClick={handleSaveEdit}
+									class="px-10 py-3 rounded-xl bg-mtg-gold text-mtg-black font-bold text-xs uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-glow-gold"
+								>
+									Salvar Alterações
+								</button>
 							</div>
 						</div>
 					</div>
@@ -473,20 +616,26 @@ export default function App() {
 
 				<Show when={importProgress()}>
 					{(progress) => (
-						<div class="fixed inset-0 z-[100] flex items-center justify-center bg-mtg-black/90">
-							<div class="glass rounded-2xl p-8 max-w-lg w-full flex flex-col items-center gap-6 shadow-glass border-mtg-white/10">
-								<div class="text-2xl font-beleren tracking-wider text-center text-mtg-white drop-shadow-md">Importing Cards...</div>
-								<div class="w-full relative">
-									<div class="overflow-hidden h-3 mb-4 text-xs flex rounded-full bg-mtg-black border border-mtg-white/5">
-										<div style={{ width: `${(progress().current / progress().total) * 100}%` }} class="flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-mtg-red to-mtg-gold transition-all duration-300 ease-out shadow-[0_0_15px_rgba(245,158,11,0.5)]"></div>
+						<div class="fixed inset-0 z-[100] flex items-center justify-center bg-mtg-black/90 backdrop-blur-md">
+							<div class="glass rounded-2xl p-10 max-w-lg w-full flex flex-col items-center gap-8 shadow-glass border-mtg-white/10">
+								<div class="relative w-28 h-28">
+									<div class="absolute inset-0 border-4 border-mtg-gold/20 rounded-full"></div>
+									<div class="absolute inset-0 border-4 border-mtg-gold rounded-full border-t-transparent animate-spin"></div>
+									<div class="absolute inset-0 flex items-center justify-center">
+										<svg class="w-12 h-12 text-mtg-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+										</svg>
 									</div>
-									<div class="text-xs text-center text-mtg-stone-400 font-medium">{progress().current} of {progress().total} Processed</div>
 								</div>
+								
+								<div class="text-center">
+									<h2 class="text-2xl font-beleren tracking-wider text-mtg-white mb-2">Importando Cartas...</h2>
+									<p class="text-mtg-stone-400 text-sm italic">Sincronizando dados com o Multiverso</p>
+								</div>
+
 								<div class="bg-mtg-stone-900 w-full p-4 rounded-xl flex items-center gap-4 border border-mtg-white/5">
-									<span class="loading loading-ring loading-md text-mtg-gold"></span>
-									<div class="flex-1 overflow-hidden">
-										<p class="text-[10px] text-mtg-stone-500 uppercase tracking-widest font-bold mb-1">Parsing & Translating</p>
-										<p class="text-base text-mtg-stone-200 truncate w-full italic">{progress().cardName}</p>
+									<div class="flex-1 overflow-hidden text-center">
+										<p class="text-xs text-mtg-stone-200 truncate w-full italic">{progress().cardName}</p>
 									</div>
 								</div>
 							</div>
@@ -531,6 +680,103 @@ export default function App() {
 					</div>
 				</Show>
 			</div>
+
+			{/* Overlay de Preparação para Impressão */}
+			<Show when={isPreparingPrint()}>
+				<div class="fixed inset-0 z-[200] bg-mtg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center">
+					<div class="w-full max-w-lg bg-mtg-stone-900 border border-mtg-gold/20 rounded-[2.5rem] p-12 shadow-2xl relative overflow-hidden">
+						<div class="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-mtg-gold to-transparent"></div>
+						
+						<div class="relative w-32 h-32 mx-auto mb-10">
+							<div class="absolute inset-0 border-4 border-mtg-gold/10 rounded-full animate-pulse"></div>
+							<div class="absolute inset-2 border-2 border-mtg-gold/20 rounded-full border-t-mtg-gold animate-spin"></div>
+							<div class="absolute inset-0 flex items-center justify-center">
+								<svg class="w-14 h-14 text-mtg-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+								</svg>
+							</div>
+						</div>
+
+						<h3 class="text-3xl font-bold text-mtg-white mb-4 font-beleren tracking-[0.1em] uppercase">Preparando Impressão</h3>
+						<p class="text-mtg-stone-400 mb-2 leading-relaxed text-base italic">
+							Renderizando cartas em alta resolução...
+						</p>
+						<p class="text-[10px] text-mtg-gold uppercase tracking-[0.3em] font-bold">
+							O diálogo de impressão abrirá em instantes
+						</p>
+
+						<div class="mt-10 pt-10 border-t border-mtg-white/5 space-y-4">
+							<div class="flex justify-between text-[10px] uppercase tracking-widest font-bold text-mtg-stone-500">
+								<span>Status da Renderização</span>
+								<span class="text-mtg-gold animate-pulse">PROCESSANDO</span>
+							</div>
+							<div class="w-full h-1 bg-mtg-stone-800 rounded-full overflow-hidden">
+								<div class="h-full bg-mtg-gold animate-shimmer" style={{ width: "100%", "background-size": "200% 100%", "background-image": "linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)" }}></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</Show>
+
+			{/* Overlay de Otimização */}
+			<Show when={isOptimizing() && isBulkOptimizing() && !isMTGOImporting()}>
+				<div class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+					<div class="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-10 shadow-2xl relative overflow-hidden">
+						<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-mtg-blue to-transparent"></div>
+						
+						<Show when={isTabActive()} fallback={
+							<div class="mb-6">
+								<div class="w-20 h-20 mx-auto bg-mtg-red/10 rounded-full flex items-center justify-center text-mtg-red animate-pulse mb-4">
+									<svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+									</svg>
+								</div>
+								<h3 class="text-xl font-bold text-mtg-red mb-2">Processo Pausado</h3>
+								<p class="text-zinc-400 text-sm">
+									Mantenha esta aba visível para que o navegador possa renderizar as cartas.
+								</p>
+							</div>
+						}>
+							<div class="relative w-24 h-24 mx-auto mb-8">
+								<div class="absolute inset-0 border-4 border-mtg-gold/10 rounded-full"></div>
+								<div class="absolute inset-0 border-4 border-mtg-gold rounded-full border-t-transparent animate-spin"></div>
+								<div class="absolute inset-0 flex items-center justify-center">
+									<svg class="w-10 h-10 text-mtg-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+									</svg>
+								</div>
+							</div>
+
+							<h3 class="text-2xl font-bold text-white mb-2 font-beleren tracking-wide">Otimizando Biblioteca</h3>
+							<p class="text-zinc-400 mb-8 text-sm leading-relaxed">
+								Aguarde a conclusão da renderização.<br/>
+								<span class="text-mtg-gold font-bold">Não mude de aba para evitar falhas.</span>
+							</p>
+						</Show>
+
+						<div class="space-y-3">
+							<div class="flex justify-between text-xs uppercase tracking-widest font-bold">
+								<span class="text-zinc-500">Progresso Geral</span>
+								<span class="text-mtg-gold">
+									{Math.round(((cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.isLoading).length) / cardList().value.length) * 100)}%
+								</span>
+							</div>
+							<div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+								<div
+									class="h-full bg-mtg-gold transition-all duration-500 ease-out shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+									style={{
+										width: `${((cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.isLoading).length) / cardList().value.length) * 100}%`
+									}}
+								></div>
+							</div>
+							<p class="text-[10px] text-zinc-600 mt-2 uppercase tracking-tighter">
+								{cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.isLoading).length} de {cardList().value.length} cartas prontas
+							</p>
+						</div>
+					</div>
+				</div>
+			</Show>
 
 			<div class="print:hidden absolute h-0 w-0 overflow-hidden">
 				<Toaster position="bottom-right" />

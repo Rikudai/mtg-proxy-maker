@@ -9,14 +9,21 @@ type ShrinkToFitProps = {
 	justifyContent?: "center" | "flex-start" | "flex-end";
 	className?: string;
 	style?: JSX.CSSProperties;
+	initialFontSize?: number;
+	onCalculated?: (fontSize: number) => void;
 };
 
 export default function ShrinkToFit(props: ShrinkToFitProps) {
-	const [fontSize, setFontSize] = createSignal(props.maxFontSize);
+	const [fontSize, setFontSize] = createSignal(props.initialFontSize || props.maxFontSize);
 	let containerRef: HTMLDivElement | undefined;
 
 	const adjustFontSize = () => {
 		if (!containerRef) return;
+
+		if (props.initialFontSize) {
+			props.onCalculated?.(props.initialFontSize);
+			return;
+		}
 
 		let currentSize = props.maxFontSize;
 		setFontSize(currentSize);
@@ -34,6 +41,9 @@ export default function ShrinkToFit(props: ShrinkToFitProps) {
 				currentSize -= 0.2;
 				setFontSize(currentSize);
 				requestAnimationFrame(checkAndShrink);
+			} else {
+				// Finished shrinking, report back
+				props.onCalculated?.(currentSize);
 			}
 		};
 

@@ -6,6 +6,8 @@ import { processText } from "../../services/text-processor";
 type PlaneswalkerDescriptionProps = {
 	oracle: string;
 	lang?: string;
+	initialFontSize?: number;
+	onFontSizeCalculated?: (size: number) => void;
 };
 
 function PlaneswalkerCost({ cost }: { cost: string }) {
@@ -110,6 +112,8 @@ export default function PlaneswalkerDescription(
 			minFontSize={4.5}
 			maxFontSize={7.5}
 			unit="pt"
+			initialFontSize={props.initialFontSize}
+			onCalculated={props.onFontSizeCalculated}
 			style={{
 				top: "54mm",
 				left: "2.9mm",

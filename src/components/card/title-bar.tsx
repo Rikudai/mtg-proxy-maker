@@ -13,6 +13,8 @@ type TitleBarProps = {
 	title: string;
 	category: Card["category"];
 	manaCost?: ManaType[];
+	initialFontSize?: number;
+	onFontSizeCalculated?: (size: number) => void;
 };
 
 const style: Record<Card["category"], JSX.CSSProperties> = {
@@ -79,6 +81,8 @@ export default function TitleBar(p: TitleBarProps) {
 				maxFontSize={10.5}
 				unit="pt"
 				justifyContent="flex-start"
+				initialFontSize={props.initialFontSize}
+				onCalculated={props.onFontSizeCalculated}
 				style={{
 					flex: 1,
 					margin: 0,

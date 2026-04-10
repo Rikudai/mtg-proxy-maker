@@ -7,6 +7,8 @@ type RegularDescriptionProps = {
 	oracle?: string;
 	flavor?: string;
 	lang?: string;
+	initialFontSize?: number;
+	onFontSizeCalculated?: (size: number) => void;
 };
 
 export default function RegularDescription(props: RegularDescriptionProps) {
@@ -15,6 +17,8 @@ export default function RegularDescription(props: RegularDescriptionProps) {
 			minFontSize={6}
 			maxFontSize={9.5}
 			unit="pt"
+			initialFontSize={props.initialFontSize}
+			onCalculated={props.onFontSizeCalculated}
 			style={{
 				top: "55.1mm",
 				left: "4.9mm",
