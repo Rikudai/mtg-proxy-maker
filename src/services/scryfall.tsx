@@ -191,6 +191,10 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Token": "Ficha",
 	"Tokens": "Fichas",
 	"Planeswalker": "Planeswalker",
+	"Land": "Terreno",
+	"Sorcery": "Feitiço",
+	"Instant": "Mágica Instantânea",
+	"Toxic": "tóxico",
 	"loyalty counter": "marcador de lealdade",
 	"charge counter": "marcador de carga",
 	"+1/+1 counter": "marcador +1/+1",
@@ -270,7 +274,7 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"tapped": "virado",
 };
 
-const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand", "Sliver", "Slivers", "Planeswalker"];
+const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand", "Sliver", "Slivers", "Planeswalker", "Land", "Sorcery", "Instant", "Toxic", "tapped", "Defender"];
 
 const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
 	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))
@@ -283,6 +287,11 @@ const ALL_KEYWORDS_EN = Object.keys(MTG_TERMS_PT)
 
 export function enrichOracleText(text: string, lang: string = "en"): string {
 	if (!text) return text;
+
+	if (lang.toLowerCase().startsWith("pt")) {
+		text = text.replace(/entra em virado/gi, "entra virado");
+		text = text.replace(/entra no virado/gi, "entra virado");
+	}
 
 	const lines = text.split("\n");
 	let firstLine = lines[0];
@@ -343,7 +352,10 @@ function prepareMtgText(text: string, lang: string): { preparedText: string; pla
 
 function restoreMtgText(translatedText: string, _placeholders: string[]): string {
 	// Remove os delimitadores [[ ]] mantendo o conteúdo interno que o Google traduziu/manteve
-	return translatedText.replace(/\[\[\s*(.*?)\s*\]\]/g, '$1');
+	let restored = translatedText.replace(/\[\[\s*(.*?)\s*\]\]/g, '$1');
+	restored = restored.replace(/entra em virado/gi, "entra virado");
+	restored = restored.replace(/entra no virado/gi, "entra virado");
+	return restored;
 }
 
 async function translateGoogle(text: string, targetLang: string): Promise<string> {

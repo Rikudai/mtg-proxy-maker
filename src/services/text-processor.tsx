@@ -2,12 +2,13 @@ import { JSX } from "solid-js";
 import { symbols } from "../types/symbols";
 
 export function processText(text: string, _lang: string = "en"): JSX.Element {
-	// 1. Identify symbols {X}, bold text *text* and italic text _text_
+	// 1. Identify symbols {X}, bold text *text*, italic text _text_ and text in parentheses (text)
 	// Regex matches:
 	// Group 1: Symbols like {W}
 	// Group 2: Bold text inside asterisks like *Flying*
 	// Group 3: Italic text inside underscores like _Coven_
-	const combinedRegex = /({[^}]+})|\*(.*?)\*|_(.*?)_/g;
+	// Group 4: Text inside parentheses like (This is italic)
+	const combinedRegex = /({[^}]+})|\*(.*?)\*|_(.*?)_|\((.*?)\)/g;
 
 	const parts: string[] = [];
 	let lastIndex = 0;
@@ -28,6 +29,9 @@ export function processText(text: string, _lang: string = "en"): JSX.Element {
 		} else if (match[3]) {
 			// It's italic text – we've captured the content without underscores
 			parts.push(`__ITALIC__${match[3]}`);
+		} else if (match[4]) {
+			// It's parenthesized text – we output it as italic but keeping the parentheses
+			parts.push(`__ITALIC__(${match[4]})`);
 		}
 		
 		lastIndex = combinedRegex.lastIndex;

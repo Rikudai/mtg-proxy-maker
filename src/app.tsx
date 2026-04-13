@@ -373,6 +373,16 @@ export default function App() {
 				await new Promise(r => setTimeout(r, 600)); 
 				await document.fonts.ready;
 
+				// Ensure all images (like mana symbols) inside the node are fully loaded
+				const images = Array.from(node.querySelectorAll('img'));
+				await Promise.all(images.map(img => {
+					if (img.complete) return Promise.resolve();
+					return new Promise(resolve => {
+						img.onload = resolve;
+						img.onerror = resolve;
+					});
+				}));
+
 				const blob = await toPng(node, { pixelRatio: 4, cacheBust: true });
 				const base64Data = blob.replace(/^data:image\/png;base64,/, "");
 
