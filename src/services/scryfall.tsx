@@ -59,6 +59,8 @@ class RequestQueue {
 }
 
 const scryfallQueue = new RequestQueue();
+const translateQueue = new RequestQueue();
+
 const requestCache = new Map<string, Promise<any>>();
 
 async function fetchCachedJson(
@@ -90,51 +92,61 @@ async function fetchCachedJson(
 	}
 
 	const executeFetch = async () => {
-		try {
-			const response = await fetch(url, {
-				...options,
-				headers: {
-					"Accept": "application/json",
-					...(options.body ? { "Content-Type": "application/json" } : {}),
-					...(options.headers || {}),
+		let currentRetry = retryCount;
+		while (currentRetry < 4) {
+			try {
+				const response = await fetch(url, {
+					...options,
+					headers: {
+						"Accept": "application/json",
+						...(options.body ? { "Content-Type": "application/json" } : {}),
+						...(options.headers || {}),
+					}
+				});
+				
+				// Tratamento de Rate Limit (429) para Scryfall e Google Translate
+				if (response.status === 429) {
+					const delay = (isScryfall ? 1000 : 2000) * Math.pow(2, currentRetry);
+					console.warn(`Rate limit hit (429) for ${isScryfall ? 'Scryfall' : 'Google Translate'}. Retrying in ${delay}ms... (attempt ${currentRetry + 1})`);
+					await new Promise(r => setTimeout(r, delay));
+					currentRetry++;
+					continue;
 				}
-			});
-			
-			// Se o Scryfall retornar 429, esperamos um tempo maior antes do retry
-			if (response.status === 429 && isScryfall && retryCount < 4) {
-				const delay = 1000 * Math.pow(2, retryCount);
-				console.warn(`Scryfall rate limit hit (429). Retrying in ${delay}ms... (attempt ${retryCount + 1})`);
-				await new Promise(r => setTimeout(r, delay));
-				return fetchCachedJson(url, retryCount + 1, options);
-			}
 
-			const json = await response.json().catch(() => null);
-			return json || { status: response.status };
-		} catch (e) {
-			// Se falhou por CORS ou Rede, frequentemente é um 429 disfarçado
-			if (retryCount < 3) {
-				const delay = isScryfall ? 2000 * (retryCount + 1) : 300;
-				console.warn(`Network error fetching ${url} (potential rate limit/CORS). Retrying in ${delay}ms... (attempt ${retryCount + 1}):`, e);
-				await new Promise((r) => setTimeout(r, delay));
-				return fetchCachedJson(url, retryCount + 1, options);
+				const json = await response.json().catch(() => null);
+				return json || { status: response.status };
+			} catch (e) {
+				// Se falhou por CORS ou Rede, frequentemente é um 429 disfarçado
+				if (currentRetry < 3) {
+					const delay = isScryfall ? 2000 * (currentRetry + 1) : 300;
+					console.warn(`Network error fetching ${url} (potential rate limit/CORS). Retrying in ${delay}ms... (attempt ${currentRetry + 1}):`, e);
+					await new Promise((r) => setTimeout(r, delay));
+					currentRetry++;
+					continue;
+				}
+				console.error(`Network error fetching ${url} after multiple retries:`, e);
+				return { status: 500 };
 			}
-			console.error(`Network error fetching ${url} after multiple retries:`, e);
-			return { status: 500 };
 		}
+		return { status: 500 };
 	};
 
-	const promise = isScryfall ? scryfallQueue.add(executeFetch) : executeFetch();
+	const promise = isScryfall ? scryfallQueue.add(executeFetch) : translateQueue.add(executeFetch);
 
 	if (retryCount === 0) {
 		requestCache.set(cacheKey, promise);
-		// Persist successful Scryfall results
-		if (isScryfall) {
-			promise.then(data => {
-				if (data && !data.error && (!data.status || data.status < 400)) {
-					idbSet(cacheKey, data).catch(e => console.warn("Persistent cache write failed", e));
-				}
-			});
-		}
+		
+		promise.then(data => {
+			if (data && data.status && data.status >= 400) {
+				requestCache.delete(cacheKey);
+			} else if (isScryfall && data && !data.error) {
+				// Persist successful Scryfall results
+				idbSet(cacheKey, data).catch(e => console.warn("Persistent cache write failed", e));
+			}
+		}).catch(() => {
+			// Remove from cache if it failed, so we can retry next time
+			requestCache.delete(cacheKey);
+		});
 	}
 	
 	return promise;
@@ -216,6 +228,8 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"Trample": "Atropelar",
 	"Vigilance": "Vigilância",
 	"Ward": "Salvaguarda",
+	"Enchant": "Encantar",
+	"Protection": "Proteção",
 	"Affinity": "Afinidade",
 	"Amass": "Arregimentar",
 	"Cascade": "Cascata",
@@ -274,15 +288,34 @@ const MTG_TERMS_PT: Record<string, string> = {
 	"tapped": "virado",
 };
 
-const EXCLUDED_FROM_BOLDING = ["Battlefield", "Graveyard", "Token", "Tokens", "Library", "Ninjutsu", "Hand", "Sliver", "Slivers", "Planeswalker", "Land", "Sorcery", "Instant", "Toxic", "tapped", "Defender"];
+const BOLD_KEYWORDS = [
+	"Deathtouch",
+	"Defender",
+	"Double Strike",
+	"Enchant",
+	"Equip",
+	"First Strike",
+	"Flash",
+	"Flying",
+	"Haste",
+	"Hexproof",
+	"Indestructible",
+	"Lifelink",
+	"Menace",
+	"Protection",
+	"Prowess",
+	"Reach",
+	"Trample",
+	"Vigilance"
+];
 
 const ALL_KEYWORDS_PT = Object.entries(MTG_TERMS_PT)
-	.filter(([en]) => !EXCLUDED_FROM_BOLDING.includes(en))
+	.filter(([en]) => BOLD_KEYWORDS.includes(en))
 	.map(([_, pt]) => pt)
 	.sort((a, b) => b.length - a.length);
 
 const ALL_KEYWORDS_EN = Object.keys(MTG_TERMS_PT)
-	.filter(en => !EXCLUDED_FROM_BOLDING.includes(en))
+	.filter(en => BOLD_KEYWORDS.includes(en))
 	.sort((a, b) => b.length - a.length);
 
 export function enrichOracleText(text: string, lang: string = "en"): string {
@@ -322,11 +355,70 @@ export function enrichOracleText(text: string, lang: string = "en"): string {
 
 const MTG_TERMS_KEYS = Object.keys(MTG_TERMS_PT).sort((a, b) => b.length - a.length);
 
-function prepareMtgText(text: string, lang: string): { preparedText: string; placeholders: string[] } {
+let customDictionaryCachePromise: Promise<Record<string, string>> | null = null;
+let customDictionaryCache: Record<string, string> | null = null;
+
+export async function getCustomDictionary(): Promise<Record<string, string>> {
+	if (customDictionaryCache) return customDictionaryCache;
+	if (customDictionaryCachePromise) return customDictionaryCachePromise;
+
+	customDictionaryCachePromise = (async () => {
+		try {
+			const res = await fetch('/api/dictionary');
+			if (res.ok) {
+				const dict = await res.json() as Record<string, string>;
+				customDictionaryCache = dict;
+				return dict;
+			}
+		} catch (e) {
+			console.warn("API de dicionário local não disponível.");
+		}
+
+		try {
+			const dict = await idbGet("mtg-custom-dict") as Record<string, string>;
+			customDictionaryCache = dict || {};
+			return customDictionaryCache!;
+		} catch {
+			return {};
+		}
+	})();
+
+	return customDictionaryCachePromise;
+}
+
+export async function saveToCustomDictionary(enText: string, ptText: string) {
+	const dict = await getCustomDictionary();
+	dict[enText] = ptText;
+	customDictionaryCache = dict;
+	
+	try {
+		const response = await fetch('/api/dictionary', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(dict, null, 2)
+		});
+		if (response.ok) return; // Se salvou via API local, sucesso!
+	} catch (e) {
+		console.warn("Fallback para IndexedDB: falha ao salvar arquivo local.");
+	}
+
+	await idbSet("mtg-custom-dict", dict);
+}
+
+function prepareMtgText(text: string, lang: string, customDict: Record<string, string>): { preparedText: string; placeholders: string[] } {
 	if (lang !== 'pt') return { preparedText: text, placeholders: [] };
 
 	let preparedText = text;
 	const placeholders: string[] = [];
+
+	const lines = preparedText.split('\n');
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i].trim();
+		if (line && customDict[line]) {
+			lines[i] = lines[i].replace(line, `[[${customDict[line]}]]`);
+		}
+	}
+	preparedText = lines.join('\n');
 
 	for (const term of MTG_TERMS_KEYS) {
 		const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -358,20 +450,52 @@ function restoreMtgText(translatedText: string, _placeholders: string[]): string
 	return restored;
 }
 
-async function translateGoogle(text: string, targetLang: string): Promise<string> {
+export async function translateGoogle(text: string, targetLang: string = "pt"): Promise<string> {
 	if (!text) return text;
+	
+	let dict: Record<string, string> = {};
+	let preparedText = text;
+	let placeholders: string[] = [];
+
 	try {
-		const { preparedText, placeholders } = prepareMtgText(text, targetLang);
+		dict = await getCustomDictionary();
+		const prep = prepareMtgText(text, targetLang, dict);
+		preparedText = prep.preparedText;
+		placeholders = prep.placeholders;
+
 		const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${targetLang}&dt=t&q=${encodeURIComponent(preparedText)}`;
 		const json = await fetchCachedJson(url);
-		if (json && json.status && json.status >= 400) throw new Error("Translation request failed");
+		if (json && json.status && json.status >= 400) throw new Error(`Translation request failed with status ${json.status}`);
 		
 		let translatedText = json?.[0]?.map((x: any) => x?.[0] || '')?.join('') || preparedText;
 		
 		return restoreMtgText(translatedText, placeholders);
 	} catch (e) {
 		console.error("Translation failed", e);
-		return text;
+		// Fallback gracioso: Se a API falhar, pelo menos o dicionário local será preservado
+		return restoreMtgText(preparedText, placeholders);
+	}
+}
+
+export async function processCorrection(originalEn: string, editedPt: string) {
+	if (!originalEn || !editedPt) return;
+	
+	const enLines = originalEn.split('\n');
+	const editedLines = editedPt.split('\n');
+
+	if (enLines.length === editedLines.length) {
+		for (let i = 0; i < enLines.length; i++) {
+			const enLine = enLines[i].trim();
+			const editedLine = editedLines[i].trim();
+
+			if (enLine && editedLine && enLine !== editedLine) {
+				await saveToCustomDictionary(enLine, editedLine);
+			}
+		}
+	} else {
+		if (originalEn !== editedPt) {
+			await saveToCustomDictionary(originalEn.trim(), editedPt.trim());
+		}
 	}
 }
 
@@ -434,6 +558,7 @@ export function mapScryfallToCard(scryfallCard: any, lang: string): Card {
 		},
 		typeText: enCardFaceInfo["printed_type_line"] || enCardFaceInfo["type_line"],
 		oracleText: enrichOracleText(enCardFaceInfo["printed_text"] || enCardFaceInfo["oracle_text"], finalLang),
+		originalOracleText: enCardFaceInfo["printed_text"] || enCardFaceInfo["oracle_text"],
 		flavorText: enCardFaceInfo["flavor_text"],
 		power: enCardFaceInfo["power"],
 		toughness: enCardFaceInfo["toughness"],
@@ -472,6 +597,7 @@ export function mapScryfallToCard(scryfallCard: any, lang: string): Card {
 			},
 			typeText: enReverseFaceInfo["printed_type_line"] || enReverseFaceInfo["type_line"],
 			oracleText: enrichOracleText(enReverseFaceInfo["printed_text"] || enReverseFaceInfo["oracle_text"], finalLang),
+			originalOracleText: enReverseFaceInfo["printed_text"] || enReverseFaceInfo["oracle_text"],
 			flavorText: enReverseFaceInfo["flavor_text"],
 			power: enReverseFaceInfo["power"],
 			toughness: enReverseFaceInfo["toughness"],
@@ -541,22 +667,32 @@ export async function fetchCardsBulk(
 
 			// Mapeia a carta básica
 			const card = mapScryfallToCard(scryfallCard, lang);
+			card.translationSource = (lang !== "en" && scryfallCard.lang === "en") ? "google" : "scryfall";
 			
 			// Busca variantes para saber o total disponível (necessário para o contador de artes)
 			const variants = await fetchVariants(card.originalName);
 			card.totalVariants = variants.length;
-			if (card.verso && typeof card.verso !== "string") card.verso.totalVariants = variants.length;
+			if (card.verso && typeof card.verso !== "string") {
+				card.verso.totalVariants = variants.length;
+				card.verso.translationSource = card.translationSource;
+			}
 
 			// Se o idioma não for inglês e a carta veio em inglês, tentamos traduzir
 			if (lang !== "en" && scryfallCard.lang === "en") {
 				card.title = await translateGoogle(card.title, lang);
-				card.typeText = await translateGoogle(card.typeText, lang);
+				card.typeText = await translateGoogle(
+					lang === "pt" ? card.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.typeText,
+					lang
+				);
 				card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, lang), lang);
 				if (card.flavorText) card.flavorText = await translateGoogle(card.flavorText, lang);
 				
 				if (card.verso && typeof card.verso !== "string") {
 					card.verso.title = await translateGoogle(card.verso.title, lang);
-					card.verso.typeText = await translateGoogle(card.verso.typeText, lang);
+					card.verso.typeText = await translateGoogle(
+						lang === "pt" ? card.verso.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.verso.typeText,
+						lang
+					);
 					card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, lang), lang);
 					if (card.verso.flavorText) card.verso.flavorText = await translateGoogle(card.verso.flavorText, lang);
 				}
@@ -645,16 +781,27 @@ export async function fetchCard(
 		fr["lang"] === "en" ||
 		!hasPrintedText
 	);
+
+	card.translationSource = needsTranslation ? "google" : "scryfall";
+	if (card.verso && typeof card.verso !== "string") {
+		card.verso.translationSource = card.translationSource;
+	}
 	
 	if (needsTranslation) {
 		card.title = await translateGoogle(card.title, targetLang);
-		card.typeText = await translateGoogle(card.typeText, targetLang);
+		card.typeText = await translateGoogle(
+			targetLang === "pt" ? card.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.typeText,
+			targetLang
+		);
 		card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, targetLang), lang);
 		card.flavorText = await translateGoogle(card.flavorText ?? "", targetLang);
 		
 		if (card.verso && typeof card.verso !== "string") {
 			card.verso.title = await translateGoogle(card.verso.title, targetLang);
-			card.verso.typeText = await translateGoogle(card.verso.typeText, targetLang);
+			card.verso.typeText = await translateGoogle(
+				targetLang === "pt" ? card.verso.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.verso.typeText,
+				targetLang
+			);
 			card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, targetLang), lang);
 			card.verso.flavorText = await translateGoogle(card.verso.flavorText ?? "", targetLang);
 		}
@@ -666,7 +813,10 @@ export async function fetchCard(
 	if (lang !== "en" && selectedVariant.typeText) {
 		selectedVariant = {
 			...selectedVariant,
-			typeText: await translateGoogle(selectedVariant.typeText ?? "", targetLang),
+			typeText: await translateGoogle(
+				targetLang === "pt" ? selectedVariant.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : selectedVariant.typeText,
+				targetLang
+			),
 			oracleText: enrichOracleText(
 				await translateGoogle(selectedVariant.oracleText ?? "", targetLang),
 				lang
@@ -707,6 +857,7 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 					...partial,
 					typeText: card["type_line"],
 					oracleText: card["printed_text"] || card["oracle_text"],
+					originalOracleText: card["printed_text"] || card["oracle_text"],
 					flavorText: card["flavor_text"],
 					power: card["power"],
 					toughness: card["toughness"],

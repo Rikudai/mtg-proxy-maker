@@ -258,14 +258,23 @@ export default function App() {
 		});
 
 		// Cria um mapa para busca rápida
+		const normalizeName = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 		const cardMap = new Map<string, Card>();
-		bulkResults.forEach(card => cardMap.set(card.originalName.toLowerCase(), card));
+		bulkResults.forEach(card => {
+			cardMap.set(normalizeName(card.originalName), card);
+			// Adiciona também a frente das cartas dupla face (MDFC) ao mapa para buscas exatas
+			const splitName = card.originalName.split(' // ')[0];
+			if (splitName && splitName !== card.originalName) {
+				cardMap.set(normalizeName(splitName), card);
+			}
+		});
 
 		const successes: Card[] = [];
 		let processed = 0;
 
 		for (const item of parsedList) {
-			const baseCard = cardMap.get(item.name.toLowerCase());
+			const baseCard = cardMap.get(normalizeName(item.name));
 			
 			if (!baseCard) {
 				console.error(`Card not found in bulk results: ${item.name}`);
@@ -558,9 +567,25 @@ export default function App() {
 					<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-mtg-black/90 print:hidden backdrop-blur-md">
 						<div class="glass max-w-4xl w-full max-h-[90vh] overflow-hidden rounded-[2.5rem] shadow-glass border border-mtg-white/10 flex flex-col bg-mtg-black">
 							<div class="flex items-center justify-between p-8 border-b border-mtg-white/10 bg-mtg-stone-900/50">
-								<div class="flex flex-col">
-									<h2 class="text-2xl font-beleren tracking-[0.2em] uppercase text-mtg-gold">Card Inspector</h2>
-									<p class="text-[10px] text-mtg-stone-500 uppercase tracking-widest font-bold mt-1">Sintonizando detalhes da carta</p>
+								<div class="flex items-center gap-4">
+									<div class="flex flex-col">
+										<div class="flex items-center gap-3">
+											<h2 class="text-2xl font-beleren tracking-[0.2em] uppercase text-mtg-gold">Card Inspector</h2>
+											<Show when={card().translationSource === "scryfall"}>
+												<div class="px-2 py-1 bg-mtg-blue/10 text-mtg-blue border border-mtg-blue/30 rounded flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold" title="Tradução Oficial (Scryfall)">
+													<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+													Scryfall
+												</div>
+											</Show>
+											<Show when={card().translationSource === "google"}>
+												<div class="px-2 py-1 bg-mtg-green/10 text-mtg-green border border-mtg-green/30 rounded flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold" title="Tradução Automática (Google)">
+													<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+													Google Translate
+												</div>
+											</Show>
+										</div>
+										<p class="text-[10px] text-mtg-stone-500 uppercase tracking-widest font-bold mt-1">Sintonizando detalhes da carta</p>
+									</div>
 								</div>
 								<button onClick={handleCancelEdit} class="group relative w-10 h-10 flex items-center justify-center rounded-xl bg-mtg-stone-800/50 hover:bg-mtg-red transition-all duration-300">
 									<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-mtg-stone-400 group-hover:text-white transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>

@@ -1,14 +1,16 @@
 import { JSX } from "solid-js";
 import { symbols } from "../types/symbols";
 
-export function processText(text: string, _lang: string = "en"): JSX.Element {
+export function processText(text: string, _lang: string = "en", symbolsOnly: boolean = false): JSX.Element {
 	// 1. Identify symbols {X}, bold text *text*, italic text _text_ and text in parentheses (text)
 	// Regex matches:
 	// Group 1: Symbols like {W}
 	// Group 2: Bold text inside asterisks like *Flying*
 	// Group 3: Italic text inside underscores like _Coven_
 	// Group 4: Text inside parentheses like (This is italic)
-	const combinedRegex = /({[^}]+})|\*(.*?)\*|_(.*?)_|\((.*?)\)/g;
+	const combinedRegex = symbolsOnly 
+		? /({[^}]+})/g 
+		: /({[^}]+})|\*(.*?)\*|_(.*?)_|\((.*?)\)/g;
 
 	const parts: string[] = [];
 	let lastIndex = 0;
@@ -68,13 +70,13 @@ export function processText(text: string, _lang: string = "en"): JSX.Element {
 				// Check if it's a bold part
 				if (part.startsWith("__BOLD__")) {
 					const content = part.replace("__BOLD__", "");
-					return <strong style={{ "font-weight": 700 }}>{content}</strong>;
+					return <strong style={{ "font-weight": 700 }}>{processText(content, _lang, true)}</strong>;
 				}
 
 				// Check if it's an italic part
 				if (part.startsWith("__ITALIC__")) {
 					const content = part.replace("__ITALIC__", "");
-					return <em style={{ "font-style": "italic" }}>{content}</em>;
+					return <em style={{ "font-style": "italic" }}>{processText(content, _lang, true)}</em>;
 				}
 
 				// Otherwise, plain text

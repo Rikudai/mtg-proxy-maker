@@ -10,7 +10,8 @@ import { Card } from "../types/card";
 import CardComponent from "./card/card";
 import CardVerso from "./card/card-verso";
 import VariantsModal from "./variants-modal";
-import { fetchVariants } from "../services/scryfall";
+import { fetchVariants, processCorrection, fetchCard } from "../services/scryfall";
+import toast from "solid-toast";
 
 function ManaInput(props: {
 	value: Card["manaCost"];
@@ -65,6 +66,33 @@ export default function EditCardForm(props: {
 	const [variantsModalOpen, setVariantsModalOpen] = createSignal(false);
 	const [variants, setVariants] = createSignal<Partial<Card>[]>([]);
 	const [isLoadingVariants, setIsLoadingVariants] = createSignal(false);
+	const [isCorrecting, setIsCorrecting] = createSignal(false);
+
+	const handleCorrection = async () => {
+		const c = props.card();
+		if (!c.originalOracleText || !c.oracleText) return;
+		setIsCorrecting(true);
+		try {
+			await processCorrection(c.originalOracleText, c.oracleText);
+			
+			if (c.originalName && c.title && c.originalName !== c.title) {
+				await processCorrection(c.originalName, c.title);
+			}
+
+			toast.success("Dicionário atualizado com as suas correções!", {
+				style: {
+					background: "#1c1917",
+					color: "#22c55e",
+					border: "1px solid rgba(34, 197, 94, 0.2)",
+				}
+			});
+		} catch (e) {
+			console.error(e);
+			toast.error("Falha ao salvar correção no dicionário.");
+		} finally {
+			setIsCorrecting(false);
+		}
+	};
 
 	const handleArtClick = async () => {
 		if (showBack()) return;
@@ -138,14 +166,14 @@ export default function EditCardForm(props: {
 
 				<div class="w-full flex flex-col gap-2 pt-8 mt-auto border-t border-mtg-white/10">
 					<button
-						class="w-full py-2.5 rounded-xl bg-mtg-stone-900 border border-mtg-blue/30 text-mtg-blue font-bold text-xs hover:bg-mtg-blue hover:text-mtg-white transition-all flex items-center justify-center gap-2"
+						class="w-full py-2.5 rounded-xl bg-mtg-blue text-white border-none font-bold text-xs hover:opacity-80 transition-all flex items-center justify-center gap-2"
 						onClick={() => props.onDuplicateCard()}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
 						Duplicate Card
 					</button>
 					<button
-						class="w-full py-2.5 rounded-xl bg-mtg-stone-900 border border-mtg-red/30 text-mtg-red font-bold text-xs hover:bg-mtg-red hover:text-white transition-all flex items-center justify-center gap-2"
+						class="w-full py-2.5 rounded-xl bg-mtg-red text-white border-none font-bold text-xs hover:opacity-80 transition-all flex items-center justify-center gap-2 mt-2"
 						onClick={() => props.onRemoveCard()}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
@@ -265,6 +293,17 @@ export default function EditCardForm(props: {
 									/>
 								</label>
 
+								<Show when={props.card().originalName}>
+									<label class="form-control">
+										<span class="label-text text-mtg-stone-500 text-[10px] font-bold uppercase tracking-widest mb-2 px-1 italic">Original English Title</span>
+										<input
+											readOnly
+											class="input input-sm input-bordered bg-mtg-stone-950/30 border-mtg-white/5 text-mtg-stone-500 rounded-lg text-xs tracking-wide italic"
+											value={props.card().originalName}
+										/>
+									</label>
+								</Show>
+
 								<label class="form-control">
 									<span class="label-text text-mtg-stone-400 text-xs font-bold uppercase tracking-widest mb-2 px-1">Mana Cost</span>
 									<ManaInput
@@ -296,6 +335,31 @@ export default function EditCardForm(props: {
 										value={props.card().oracleText ?? ""}
 									/>
 								</label>
+
+								<Show when={props.card().originalOracleText}>
+									<label class="form-control">
+										<span class="label-text text-mtg-stone-500 text-[10px] font-bold uppercase tracking-widest mb-2 px-1 italic">Original English Oracle Text</span>
+										<textarea
+											readOnly
+											rows={3}
+											class="textarea textarea-bordered bg-mtg-stone-950/30 border-mtg-white/5 text-mtg-stone-500 rounded-2xl text-xs leading-relaxed custom-scrollbar italic resize-none"
+											value={props.card().originalOracleText ?? ""}
+										/>
+									</label>
+									<div class="flex justify-end mt-1 mb-2">
+										<button 
+											type="button"
+											class="px-4 py-2 bg-mtg-green text-mtg-black hover:opacity-80 border-none rounded-lg text-[10px] uppercase tracking-widest font-bold flex items-center gap-2 transition-all disabled:opacity-50"
+											onClick={handleCorrection}
+											disabled={isCorrecting()}
+										>
+											<Show when={isCorrecting()} fallback={<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>}>
+												<span class="loading loading-spinner loading-xs w-3 h-3"></span>
+											</Show>
+											{isCorrecting() ? 'Processando...' : 'Enviar para correção'}
+										</button>
+									</div>
+								</Show>
 
 								<label class="form-control">
 									<span class="label-text text-mtg-stone-400 text-xs font-bold uppercase tracking-widest mb-2 px-1 italic">Flavor Text</span>
@@ -403,7 +467,7 @@ export default function EditCardForm(props: {
 
 									<button
 										type="button"
-										class="w-full py-4 rounded-xl bg-mtg-stone-950 text-white border border-mtg-white/10 font-bold text-xs uppercase tracking-widest hover:border-mtg-gold hover:text-mtg-gold transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+										class="w-full py-4 rounded-xl bg-mtg-gold text-mtg-black border-none shadow-glow-gold font-bold text-xs uppercase tracking-widest hover:opacity-80 transition-all flex items-center justify-center gap-2 disabled:opacity-30 disabled:shadow-none"
 										disabled={defaultVerso() == props.card().verso || props.card().verso == "default"}
 										onClick={() => {
 											const url = props.card().verso;

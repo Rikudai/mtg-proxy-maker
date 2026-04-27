@@ -34,7 +34,7 @@ export default function RegularDescription(props: RegularDescriptionProps) {
 				<div
 					style={{
 						margin: 0,
-						"font-weight": 500,
+						"font-weight": 400,
 						display: "flex",
 						"flex-direction": "column",
 						"white-space": "pre-wrap",
@@ -69,7 +69,7 @@ export default function RegularDescription(props: RegularDescriptionProps) {
 						"white-space": "pre-wrap",
 					}}
 				>
-					{props.flavor}
+					{processText(props.flavor, props.lang)}
 				</p>
 			)}
 		</ShrinkToFit>

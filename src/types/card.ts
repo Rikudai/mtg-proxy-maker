@@ -12,6 +12,7 @@ export type Card = {
 	lang?: string;
 	manaCost: ManaType[];
 	oracleText: string;
+	originalOracleText?: string;
 	power?: string;
 	rarity?: string;
 	set?: string;
@@ -24,6 +25,7 @@ export type Card = {
 	titleFontSize?: number;
 	oracleFontSize?: number;
 	snapshotUrl?: string;
+	translationSource?: "scryfall" | "google";
 } & (
 		| {
 			category: "Regular";

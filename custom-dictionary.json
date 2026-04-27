@@ -1,0 +1,19 @@
+{
+  "As this land enters the battlefield": "Quando este terreno entra no campo de batalha",
+  "enters the battlefield tapped": "entra no campo de batalha virado",
+  "enters the battlefield": "entra no campo de batalha",
+  "As this land enters, you may reveal a Forest or Island card from your hand. If you don't, this land enters tapped.": "Quando este terreno entrar, você poderá revelar uma carta de Floresta ou Ilha da sua mão. Se não fizer isso, esse terreno entra virado.",
+  "{T}: Add {G} or {U}.": "{T}: Adicione {G} ou {U}.",
+  "Counter target instant spell.": "Anula a mágica instantânea alvo.",
+  "{2}, Sacrifice this creature: Choose one —": "{2}, Sacrifique esta criatura: Escolha uma —",
+  "• Destroy target artifact.": "• Destrua o artefato alvo.",
+  "• Destroy target enchantment.": "• Destrua o encantamento do alvo.",
+  "• Draw a card. Then you may put a land card from your hand onto the battlefield tapped.": "• Compre uma carta. Depois você pode colocar uma carta de terreno da sua mão no campo de batalha virado.",
+  "Counter target noncreature spell. Its controller creates two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")": "Anule a mágica alvo que não seja de criatura. Seu controlador cria duas fichas de Tesouros.",
+  "Counter target noncreature spell unless its controller pays {2}.": "Anula a mágica alvo que não seja de criatura, a menos que seu controlador pague {2}.",
+  "Dispel": "Dissipar",
+  "An Offer You Can't Refuse": "Uma oferta irrecusável",
+  "Spell Pierce": "Feitiço Perfurador",
+  "Return target card from your graveyard to your hand.": "Devolva a carta alvo do seu cemitério para o sua mão.",
+  "Auroral Procession": "Procissão Boreal"
+}

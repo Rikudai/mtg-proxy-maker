@@ -199,7 +199,22 @@ export default function CardComponent(props: {
 							<Metadata {...props.card} />
 						</Show>
 						<Show when={props.card.overrideWithScanUrl && !props.card.snapshotUrl}>
-							<img class="rounded-xl" src={props.card.overrideWithScanUrl} alt={props.card.title} loading="lazy" />
+							<img 
+								class="rounded-xl" 
+								src={props.card.overrideWithScanUrl} 
+								alt={props.card.title} 
+								loading="lazy" 
+								onLoad={() => {
+									setIsTitleReady(true);
+									setIsOracleReady(true);
+									setIsArtReady(true);
+								}}
+								onError={() => {
+									setIsTitleReady(true);
+									setIsOracleReady(true);
+									setIsArtReady(true);
+								}}
+							/>
 						</Show>
 					</Show>
 				}

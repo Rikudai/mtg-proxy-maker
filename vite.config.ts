@@ -1,11 +1,58 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import solidPlugin from "vite-plugin-solid";
+import fs from "fs";
+import path from "path";
+
+function localDictionaryPlugin() {
+	return {
+		name: 'local-dictionary',
+		configureServer(server: any) {
+			server.middlewares.use((req: any, res: any, next: any) => {
+				const dictPath = path.resolve(process.cwd(), 'custom-dictionary.json');
+				
+				if (req.url === '/api/dictionary' && req.method === 'GET') {
+					if (fs.existsSync(dictPath)) {
+						res.setHeader('Content-Type', 'application/json');
+						res.statusCode = 200;
+						res.end(fs.readFileSync(dictPath, 'utf-8'));
+					} else {
+						res.setHeader('Content-Type', 'application/json');
+						res.statusCode = 200;
+						res.end('{}');
+					}
+					return;
+				}
+
+				if (req.url === '/api/dictionary' && req.method === 'POST') {
+					let body = '';
+					req.on('data', (chunk: any) => { body += chunk.toString(); });
+					req.on('end', () => {
+						try {
+							fs.writeFileSync(dictPath, body);
+							res.setHeader('Content-Type', 'application/json');
+							res.statusCode = 200;
+							res.end(JSON.stringify({ success: true }));
+						} catch (e: any) {
+							res.setHeader('Content-Type', 'application/json');
+							res.statusCode = 500;
+							res.end(JSON.stringify({ error: e.message }));
+						}
+					});
+					return;
+				}
+				
+				next();
+			});
+		}
+	}
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
 	plugins: [
 		solidPlugin(),
+		localDictionaryPlugin(),
 		VitePWA({
 			registerType: "autoUpdate",
 			includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
