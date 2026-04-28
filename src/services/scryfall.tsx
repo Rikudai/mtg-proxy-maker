@@ -450,6 +450,63 @@ function restoreMtgText(translatedText: string, _placeholders: string[]): string
 	return restored;
 }
 
+export interface OllamaTranslationResult {
+	name_pt: string;
+	type_pt: string;
+	text_pt: string;
+	flavor_text_pt: string;
+}
+
+export async function translateCardOllama(
+	name_en: string,
+	type_en: string,
+	text_en: string,
+	flavor_text_en: string,
+	targetLang: string
+): Promise<OllamaTranslationResult | null> {
+	if (targetLang !== "pt") return null;
+
+	const promptJson = JSON.stringify({
+		name_en,
+		type_en,
+		text_en: text_en || "",
+		flavor_text_en: flavor_text_en || ""
+	}, null, 2);
+
+	try {
+		const response = await fetch("http://127.0.0.1:11434/api/generate", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				model: "mtg-translator",
+				prompt: promptJson,
+				stream: false,
+				format: "json"
+			}),
+			signal: AbortSignal.timeout(300000) // 5 minutes timeout para CPU/Ollama
+		});
+		
+		if (!response.ok) return null;
+		
+		const json = await response.json();
+		const result = JSON.parse(json.response) as OllamaTranslationResult;
+		
+		console.log(`✅ [Ollama] Tradução concluída para: "${name_en}"`, result);
+		return result;
+	} catch (e: any) {
+		console.error(
+			"🚨 [Ollama] Erro Crítico de Comunicação:\n" +
+			"O site não conseguiu se conectar com o Ollama local no endereço http://127.0.0.1:11434.\n" +
+			"Motivos comuns:\n" +
+			"1. O Ollama está fechado/offline.\n" +
+			"2. O CORS não foi liberado (Esqueceu de rodar $env:OLLAMA_ORIGINS=\"*\" antes de iniciar).\n" +
+			`Erro técnico: ${e.message}`
+		);
+		console.warn("🔄 [Ollama] Fazendo fallback de emergência para o Google Translate...");
+		return null;
+	}
+}
+
 export async function translateGoogle(text: string, targetLang: string = "pt"): Promise<string> {
 	if (!text) return text;
 	
@@ -616,10 +673,9 @@ export function mapScryfallToCard(scryfallCard: any, lang: string): Card {
 	return card;
 }
 
-export async function fetchCardsCollection(names: string[]): Promise<any[]> {
-	if (names.length === 0) return [];
+export async function fetchCardsCollection(identifiers: any[]): Promise<any[]> {
+	if (identifiers.length === 0) return [];
 	
-	const identifiers = names.map(name => ({ name }));
 	const response = await fetchCachedJson("https://api.scryfall.com/cards/collection", 0, {
 		method: "POST",
 		body: JSON.stringify({ identifiers })
@@ -631,32 +687,101 @@ export async function fetchCardsCollection(names: string[]): Promise<any[]> {
 export async function fetchCardsBulk(
 	names: string[], 
 	lang = "en", 
-	onProgress?: (current: number, total: number, cardName: string) => void
+	onProgress?: (current: number, total: number, cardName: string, step: string) => void
 ): Promise<Card[]> {
 	const chunks = [];
-	for (let i = 0; i < names.length; i += 50) {
-		chunks.push(names.slice(i, i + 50));
+	for (let i = 0; i < names.length; i += 75) {
+		chunks.push(names.slice(i, i + 75));
 	}
 
 	const allCards: Card[] = [];
 	let processedCount = 0;
+	const targetLang = lang.startsWith("pt") ? "pt" : lang;
 
 	for (const chunk of chunks) {
-		const scryfallResults = await fetchCardsCollection(chunk);
+		// Etapa 1: Buscar a base em Inglês (para obter os oracle_ids universais)
+		if (onProgress) onProgress(processedCount, names.length, "Múltiplas", "Sincronizando com Scryfall (Base EN)...");
+		const identifiersEn = chunk.map(name => ({ name }));
+		const resultsEn = await fetchCardsCollection(identifiersEn);
 		
+		console.log(`📦 [Bulk] Recebidos ${resultsEn.length} resultados iniciais do Scryfall.`);
+		
+		// Etapa 2: Para o que é PT-BR, buscar via oracle_id para garantir tradução oficial
+		const tempResults: any[] = new Array(chunk.length).fill(null);
+		const translateQueue: { idx: number, oracle_id: string, name: string }[] = [];
+
+		resultsEn.forEach((card, idx) => {
+			if (card && card.object !== "error") {
+				if (targetLang !== "en" && card.lang !== targetLang && card.oracle_id) {
+					translateQueue.push({ idx, oracle_id: card.oracle_id, name: card.name });
+				}
+				tempResults[idx] = card;
+			} else {
+				console.warn(`❌ [Bulk] Card não encontrado no Scryfall: "${chunk[idx]}"`);
+			}
+		});
+
+		if (targetLang !== "en" && translateQueue.length > 0) {
+			console.log(`🔎 [Bulk] Buscando traduções oficiais para ${translateQueue.length} cards via Busca Inteligente...`);
+			if (onProgress) onProgress(processedCount, names.length, "Múltiplas", `Buscando ${translateQueue.length} traduções oficiais...`);
+			
+			// Processamos as traduções em pequenos lotes paralelos para não sobrecarregar a rede
+			const BATCH_SIZE = 5;
+			let foundOfficial = 0;
+
+			for (let i = 0; i < translateQueue.length; i += BATCH_SIZE) {
+				const batch = translateQueue.slice(i, i + BATCH_SIZE);
+				await Promise.all(batch.map(async (item) => {
+					try {
+						// Usamos o oracle_id que é o identificador universal e infalível
+						const query = `oracle_id:${item.oracle_id} lang:${targetLang}`;
+						const searchUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}`;
+						const response = await fetchCachedJson(searchUrl, 0);
+
+						if (response && response.data && response.data.length > 0) {
+							const cardPt = response.data[0];
+							if (cardPt.lang === targetLang) {
+								const originalIdx = item.idx;
+								const cardEn = tempResults[originalIdx];
+								
+								// TRANSPLANTE: Mantemos as imagens do EN, mas pegamos o texto do PT
+								if (cardEn && cardEn.image_uris && cardPt.image_uris) {
+									cardPt.image_uris = cardEn.image_uris;
+								}
+								// Se for dupla face, mantemos as faces do EN (imagens) mas texto do PT
+								if (cardEn.card_faces && cardPt.card_faces) {
+									cardPt.card_faces.forEach((face: any, fIdx: number) => {
+										if (cardEn.card_faces[fIdx]) {
+											face.image_uris = cardEn.card_faces[fIdx].image_uris;
+										}
+									});
+								}
+								
+								tempResults[originalIdx] = cardPt;
+								foundOfficial++;
+							}
+						}
+					} catch (e) {
+						// Silencioso: se falhar na busca oficial, o fallback do Ollama cuidará disso
+					}
+				}));
+			}
+			console.log(`🎯 [Bulk] Busca Inteligente encontrou ${foundOfficial}/${translateQueue.length} traduções oficiais.`);
+		}
+
+		// Etapa 3: Processar e usar Ollama apenas no que sobrar
 		for (let i = 0; i < chunk.length; i++) {
 			const name = chunk[i];
-			const scryfallCard = scryfallResults[i];
+			const scryfallCard = tempResults[i];
 			processedCount++;
 			
 			if (onProgress) {
-				onProgress(processedCount, names.length, name);
+				onProgress(processedCount, names.length, name, "Processando card...");
 			}
 
 			if (!scryfallCard || scryfallCard.object === "error") {
-				// Fallback para fetch individual se não achou na collection (ou erro)
-				// Isso garante que queries complexas (tokens etc) ainda funcionem
 				try {
+					if (onProgress) onProgress(processedCount, names.length, name, "Busca profunda...");
 					const card = await fetchCard(name, lang);
 					allCards.push(card);
 				} catch (e) {
@@ -667,9 +792,12 @@ export async function fetchCardsBulk(
 
 			// Mapeia a carta básica
 			const card = mapScryfallToCard(scryfallCard, lang);
-			card.translationSource = (lang !== "en" && scryfallCard.lang === "en") ? "google" : "scryfall";
+			const needsTranslation = lang !== "en" && scryfallCard.lang !== targetLang;
 			
-			// Busca variantes para saber o total disponível (necessário para o contador de artes)
+			console.log(`🧐 [Bulk Check] "${card.title}": ScryfallLang="${scryfallCard.lang}", TargetLang="${targetLang}" -> NeedsTranslation=${needsTranslation}`);
+			
+			card.translationSource = needsTranslation ? "ollama" : "scryfall";
+			
 			const variants = await fetchVariants(card.originalName);
 			card.totalVariants = variants.length;
 			if (card.verso && typeof card.verso !== "string") {
@@ -677,24 +805,31 @@ export async function fetchCardsBulk(
 				card.verso.translationSource = card.translationSource;
 			}
 
-			// Se o idioma não for inglês e a carta veio em inglês, tentamos traduzir
-			if (lang !== "en" && scryfallCard.lang === "en") {
-				card.title = await translateGoogle(card.title, lang);
-				card.typeText = await translateGoogle(
-					lang === "pt" ? card.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.typeText,
-					lang
-				);
-				card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, lang), lang);
-				if (card.flavorText) card.flavorText = await translateGoogle(card.flavorText, lang);
+			if (needsTranslation) {
+				card.translationSource = "ollama"; // Tag antecipada
+				if (onProgress) onProgress(processedCount, names.length, name, "Traduzindo via Ollama (IA Local)...");
 				
-				if (card.verso && typeof card.verso !== "string") {
-					card.verso.title = await translateGoogle(card.verso.title, lang);
-					card.verso.typeText = await translateGoogle(
-						lang === "pt" ? card.verso.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.verso.typeText,
+				const trans = await translateCardOllama(card.title, card.typeText, card.oracleText, card.flavorText ?? "", targetLang);
+				
+				if (trans) {
+					card.title = trans.name_pt;
+					card.typeText = trans.type_pt;
+					card.oracleText = enrichOracleText(trans.text_pt, lang);
+					card.flavorText = trans.flavor_text_pt;
+				} else {
+					if (onProgress) onProgress(processedCount, names.length, name, "Fallback: Google...");
+					card.translationSource = "google";
+					card.title = await translateGoogle(card.title, lang);
+					card.typeText = await translateGoogle(
+						lang === "pt" ? card.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.typeText,
 						lang
 					);
-					card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, lang), lang);
-					if (card.verso.flavorText) card.verso.flavorText = await translateGoogle(card.verso.flavorText, lang);
+					card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, lang), lang);
+					if (card.flavorText) card.flavorText = await translateGoogle(card.flavorText, lang);
+				}
+
+				if (card.verso && typeof card.verso !== "string") {
+					card.verso.translationSource = card.translationSource;
 				}
 			}
 
@@ -775,35 +910,62 @@ export async function fetchCard(
 		card.verso.totalVariants = variants.length;
 	}
 
-	const hasPrintedText = !!frCardFaceInfo["printed_text"];
 	const needsTranslation = lang !== "en" && (
 		frCardsStatus === 404 ||
-		fr["lang"] === "en" ||
-		!hasPrintedText
+		fr["lang"] !== targetLang
 	);
 
-	card.translationSource = needsTranslation ? "google" : "scryfall";
+	console.log(`📊 [Debug] Card: "${card.title}", NeedsTrans: ${needsTranslation}, ScryfallLang: "${fr["lang"]}", Status: ${frCardsStatus}`);
+
+	card.translationSource = needsTranslation ? "ollama" : "scryfall";
 	if (card.verso && typeof card.verso !== "string") {
 		card.verso.translationSource = card.translationSource;
 	}
 	
+	
 	if (needsTranslation) {
-		card.title = await translateGoogle(card.title, targetLang);
-		card.typeText = await translateGoogle(
-			targetLang === "pt" ? card.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.typeText,
-			targetLang
-		);
-		card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, targetLang), lang);
-		card.flavorText = await translateGoogle(card.flavorText ?? "", targetLang);
+		console.log(`🔍 [Translation] Iniciando tradução para "${card.title}" (Idioma: ${lang})`);
+		const mainTrans = await translateCardOllama(card.title, card.typeText, card.oracleText, card.flavorText ?? "", targetLang);
 		
-		if (card.verso && typeof card.verso !== "string") {
-			card.verso.title = await translateGoogle(card.verso.title, targetLang);
-			card.verso.typeText = await translateGoogle(
-				targetLang === "pt" ? card.verso.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.verso.typeText,
+		if (mainTrans) {
+			card.translationSource = "ollama";
+			if (card.verso && typeof card.verso !== "string") card.verso.translationSource = "ollama";
+
+			card.title = mainTrans.name_pt;
+			card.typeText = mainTrans.type_pt;
+			card.oracleText = enrichOracleText(mainTrans.text_pt, lang);
+			card.flavorText = mainTrans.flavor_text_pt;
+		} else {
+			console.warn(`⚠️ [Translation] Ollama falhou para "${card.title}". Tentando Google Translate...`);
+			card.translationSource = "google";
+			if (card.verso && typeof card.verso !== "string") card.verso.translationSource = "google";
+			
+			card.title = await translateGoogle(card.title, targetLang);
+			card.typeText = await translateGoogle(
+				targetLang === "pt" ? card.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.typeText,
 				targetLang
 			);
-			card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, targetLang), lang);
-			card.verso.flavorText = await translateGoogle(card.verso.flavorText ?? "", targetLang);
+			card.oracleText = enrichOracleText(await translateGoogle(card.oracleText, targetLang), lang);
+			card.flavorText = await translateGoogle(card.flavorText ?? "", targetLang);
+		}
+		
+		if (card.verso && typeof card.verso !== "string") {
+			const versoTrans = mainTrans ? await translateCardOllama(card.verso.title, card.verso.typeText, card.verso.oracleText, card.verso.flavorText ?? "", targetLang) : null;
+			
+			if (versoTrans) {
+				card.verso.title = versoTrans.name_pt;
+				card.verso.typeText = versoTrans.type_pt;
+				card.verso.oracleText = enrichOracleText(versoTrans.text_pt, lang);
+				card.verso.flavorText = versoTrans.flavor_text_pt;
+			} else {
+				card.verso.title = await translateGoogle(card.verso.title, targetLang);
+				card.verso.typeText = await translateGoogle(
+					targetLang === "pt" ? card.verso.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : card.verso.typeText,
+					targetLang
+				);
+				card.verso.oracleText = enrichOracleText(await translateGoogle(card.verso.oracleText, targetLang), lang);
+				card.verso.flavorText = await translateGoogle(card.verso.flavorText ?? "", targetLang);
+			}
 		}
 	}
 
@@ -811,18 +973,29 @@ export async function fetchCard(
 	let selectedVariant: Partial<Card> = variants.length > 0 ? (variants[variant % variants.length] ?? {}) : {};
 
 	if (lang !== "en" && selectedVariant.typeText) {
-		selectedVariant = {
-			...selectedVariant,
-			typeText: await translateGoogle(
-				targetLang === "pt" ? selectedVariant.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : selectedVariant.typeText,
-				targetLang
-			),
-			oracleText: enrichOracleText(
-				await translateGoogle(selectedVariant.oracleText ?? "", targetLang),
-				lang
-			),
-			flavorText: await translateGoogle(selectedVariant.flavorText ?? "", targetLang),
-		};
+		const variantTrans = await translateCardOllama(card.originalName, selectedVariant.typeText, selectedVariant.oracleText ?? "", selectedVariant.flavorText ?? "", targetLang);
+		
+		if (variantTrans) {
+			selectedVariant = {
+				...selectedVariant,
+				typeText: variantTrans.type_pt,
+				oracleText: enrichOracleText(variantTrans.text_pt, lang),
+				flavorText: variantTrans.flavor_text_pt,
+			};
+		} else {
+			selectedVariant = {
+				...selectedVariant,
+				typeText: await translateGoogle(
+					targetLang === "pt" ? selectedVariant.typeText.replace(/Basic Land/gi, "[[Terreno Básico]]") : selectedVariant.typeText,
+					targetLang
+				),
+				oracleText: enrichOracleText(
+					await translateGoogle(selectedVariant.oracleText ?? "", targetLang),
+					lang
+				),
+				flavorText: await translateGoogle(selectedVariant.flavorText ?? "", targetLang),
+			};
+		}
 	}
 
 	return {

@@ -79,13 +79,14 @@ export default function App() {
 	const [isBulkOptimizing, setIsBulkOptimizing] = createSignal(false);
 	const [primingDone, setPrimingDone] = createSignal(false);
 	const [isTabActive, setIsTabActive] = createSignal(true);
-	const [importProgress, setImportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
+	const [importProgress, setImportProgress] = createSignal<{ current: number, total: number, cardName: string, step?: string } | null>(null);
 	const [renderBatch, setRenderBatch] = createSignal<number[]>([]);
 	const [exportProgress, setExportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
 	const [isExportingMode, setIsExportingMode] = createSignal(false);
 	const [isPrintMode, setIsPrintMode] = createSignal(false);
 	const [isPreparingPrint, setIsPreparingPrint] = createSignal(false);
 	const [localEditingCard, setLocalEditingCard] = createSignal<Card | null>(null);
+	const [shouldCancelExport, setShouldCancelExport] = createSignal(false);
 	const isHighQualityMode = () => isPrintMode() || isExportingMode();
 
 	const [cardList, setCardList] = createResourceStore<Card[]>([], () =>
@@ -247,13 +248,13 @@ export default function App() {
 		const totalCardsToProcess = parsedList.reduce((acc, curr) => acc + (curr.number || 0), 0);
 		setImportProgress({ current: 0, total: totalCardsToProcess, cardName: "Iniciando importação em lote..." });
 
-		// Busca todas as cartas únicas em blocos de 50
-		const bulkResults = await fetchCardsBulk(uniqueNames, language(), (current, total, cardName) => {
-			// O progresso aqui é baseado em nomes únicos, vamos tentar estimar o progresso real ou apenas mostrar o nome
+		// Busca todas as cartas únicas em blocos de 75
+		const bulkResults = await fetchCardsBulk(uniqueNames, language(), (current, total, cardName, step) => {
 			setImportProgress(prev => ({ 
 				current: Math.min(prev?.current || 0, totalCardsToProcess), 
 				total: totalCardsToProcess, 
-				cardName 
+				cardName,
+				step
 			}));
 		});
 
@@ -312,14 +313,37 @@ export default function App() {
 
 	async function getCardList(): Promise<Card[]> {
 		const urlCardList = url.searchParams.get("cardList");
-		localStorage.removeItem("cardList");
+		
 		if (urlCardList) {
 			window.history.replaceState(null, "", "/");
+			localStorage.removeItem("cardList"); // Limpa cache anterior ao importar via URL
 			return getNewListFromMTGO(decodeURIComponent(urlCardList));
 		} else {
+			const saved = localStorage.getItem("cardList");
+			if (saved) {
+				try {
+					const parsed = JSON.parse(saved);
+					if (Array.isArray(parsed) && parsed.length > 0) {
+						console.log("♻️ [Session] Restaurando sessão anterior...");
+						return parsed;
+					}
+				} catch (e) {
+					console.error("Erro ao restaurar sessão:", e);
+				}
+			}
 			return [];
 		}
 	}
+
+	createEffect(function autoSaveSession() {
+		const list = cardList().value;
+		// Só salvamos se a lista não estiver vazia e não estivermos no meio de um import
+		if (list.length > 0 && !isMTGOImporting()) {
+			localStorage.setItem("cardList", JSON.stringify(list));
+		} else if (list.length === 0 && !isMTGOImporting()) {
+			localStorage.removeItem("cardList");
+		}
+	});
 
 	createEffect(function syncWithLocalStorage() {
 		localStorage.setItem("language", language());
@@ -371,9 +395,13 @@ export default function App() {
 
 			setIsExportingMode(true);
 			setExportProgress({ current: 0, total: elements.length, cardName: "Preparando exportação de alta fidelidade..." });
+			setShouldCancelExport(false);
 			const nameCounts: Record<string, number> = {};
-
 			for (let i = 0; i < elements.length; i++) {
+				if (shouldCancelExport()) {
+					console.log("🛑 Exportação cancelada pelo usuário.");
+					break;
+				}
 				const node = elements[i] as HTMLElement;
 				const baseName = node.dataset.name || "Card";
 				setExportProgress({ current: i + 1, total: elements.length, cardName: baseName });
@@ -644,6 +672,13 @@ export default function App() {
 										<p class="text-base text-mtg-stone-200 truncate w-full italic">{progress().cardName}</p>
 									</div>
 								</div>
+
+								<button 
+									onClick={() => setShouldCancelExport(true)}
+									class="mt-4 px-6 py-2 rounded-xl bg-mtg-red/20 text-mtg-red border border-mtg-red/30 hover:bg-mtg-red hover:text-white transition-all text-xs font-bold uppercase tracking-widest"
+								>
+									Cancelar Exportação
+								</button>
 							</div>
 						</div>
 					)}
@@ -665,7 +700,9 @@ export default function App() {
 								
 								<div class="text-center">
 									<h2 class="text-2xl font-beleren tracking-wider text-mtg-white mb-2">Importando Cartas...</h2>
-									<p class="text-mtg-stone-400 text-sm italic">Sincronizando dados com o Multiverso</p>
+									<p class="text-mtg-gold text-[10px] uppercase tracking-[0.2em] font-black animate-pulse bg-mtg-gold/5 py-2 px-4 rounded-lg border border-mtg-gold/10">
+										{progress().step || "Iniciando processamento..."}
+									</p>
 								</div>
 
 								<div class="bg-mtg-stone-900 w-full p-4 rounded-xl flex items-center gap-4 border border-mtg-white/5">
@@ -673,6 +710,17 @@ export default function App() {
 										<p class="text-xs text-mtg-stone-200 truncate w-full italic">{progress().cardName}</p>
 									</div>
 								</div>
+
+								<button 
+									onClick={() => {
+										// Para a importação, basta recarregar a aba ou poderíamos ter um sinal de abort
+										// Por segurança, vamos apenas recarregar a aplicação para limpar o estado de import
+										window.location.reload();
+									}}
+									class="px-6 py-2 rounded-xl bg-mtg-stone-800 text-mtg-stone-400 border border-mtg-stone-700 hover:bg-mtg-red hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest"
+								>
+									Interromper e Manter Cartas Atuais
+								</button>
 							</div>
 						</div>
 					)}

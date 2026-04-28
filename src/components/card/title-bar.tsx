@@ -54,7 +54,7 @@ export default function TitleBar(p: TitleBarProps) {
 	const props = mergeProps({ manaCost: [] }, p);
 
 	const sortedMana = () =>
-		props.manaCost.sort(
+		[...props.manaCost].sort(
 			(a, b) =>
 				manaTypes.findIndex((t) => t === a) -
 				manaTypes.findIndex((t) => t === b),
