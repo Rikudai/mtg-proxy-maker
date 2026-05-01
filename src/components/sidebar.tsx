@@ -10,6 +10,8 @@ type SidebarProps = {
 	setLanguage: Setter<string>;
 	printVersos: boolean;
 	setPrintVersos: Setter<boolean>;
+	autoTranslate: boolean;
+	setAutoTranslate: Setter<boolean>;
 	onAddCard: (cardName: string, variant?: number) => void;
 	onClearList: () => void;
 	onRawListImport: (rawCardList: string) => void;
@@ -179,6 +181,20 @@ export default function Sidebar(props: SidebarProps) {
 								class="toggle toggle-primary toggle-sm"
 								onChange={(e) => props.setPrintVersos(e.currentTarget.checked)}
 								checked={props.printVersos}
+							/>
+						</div>
+						
+						<div class="flex items-center justify-between p-3 rounded-xl bg-mtg-stone-900 border border-mtg-white/5">
+							<div class="flex flex-col">
+								<span class="text-xs font-semibold text-mtg-stone-400">Auto Translate</span>
+								<span class="text-[9px] text-mtg-stone-500 font-medium uppercase tracking-tighter">LLM & Google Bypass</span>
+							</div>
+							<input
+								name="auto-translate"
+								type="checkbox"
+								class="toggle toggle-secondary toggle-sm"
+								onChange={(e) => props.setAutoTranslate(e.currentTarget.checked)}
+								checked={props.autoTranslate}
 							/>
 						</div>
 					</div>

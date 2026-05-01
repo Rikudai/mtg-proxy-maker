@@ -41,15 +41,18 @@ export default function CardComponent(props: {
 			await document.fonts.ready;
 			await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 			
-			const dataUrl = await toPng(cardRef, { 
-				pixelRatio: 1, 
-				cacheBust: true,
-				// Increase font timeout / safety
-				fontEmbedCSS: undefined 
-			});
+			const dataUrl = await Promise.race([
+				toPng(cardRef, { 
+					pixelRatio: 1, 
+					cacheBust: true,
+					fontEmbedCSS: undefined 
+				}),
+				new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+			]);
 			props.onUpdate?.({ snapshotUrl: dataUrl });
 		} catch (e) {
 			console.warn("Snapshot failed", e);
+			props.onUpdate?.({ snapshotError: true });
 		} finally {
 			setIsCapturing(false);
 		}
@@ -57,8 +60,17 @@ export default function CardComponent(props: {
 
 	createEffect(() => {
 		// Only capture if all parts are ready, no snapshot exists, and not currently selected
-		if (isTitleReady() && isOracleReady() && isArtReady() && !props.card.snapshotUrl && !props.card.isLoading && !props.selected && props.shouldRender) {
-			captureSnapshot();
+		// Also DISABLE during high quality (export/print) to avoid competing for CPU
+		if (
+			isTitleReady() && isOracleReady() && isArtReady() && 
+			!props.card.snapshotUrl && !props.card.snapshotError && 
+			!props.card.isLoading && !props.selected && 
+			props.shouldRender && !props.isHighQuality
+		) {
+			// Random delay to stagger snapshot requests and prevent UI freezing
+			const delay = Math.random() * 2000;
+			const timeout = setTimeout(captureSnapshot, delay);
+			onCleanup(() => clearTimeout(timeout));
 		}
 	});
 
@@ -113,7 +125,6 @@ export default function CardComponent(props: {
 									left: 0,
 								}}
 								src={frameAndBackground().background}
-								loading="lazy"
 							/>
 							{/* Black mask for the bottom of the card */}
 							<div
@@ -145,7 +156,6 @@ export default function CardComponent(props: {
 									"z-index": props.card.category == "Planeswalker" ? 1 : 0,
 								}}
 								src={frameAndBackground().frame}
-								loading="lazy"
 							/>
 							<TitleBar
 								title={props.card.title}
@@ -203,7 +213,6 @@ export default function CardComponent(props: {
 								class="rounded-xl" 
 								src={props.card.overrideWithScanUrl} 
 								alt={props.card.title} 
-								loading="lazy" 
 								onLoad={() => {
 									setIsTitleReady(true);
 									setIsOracleReady(true);

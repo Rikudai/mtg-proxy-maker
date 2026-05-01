@@ -136,7 +136,7 @@ async function fetchCachedJson(
 	if (retryCount === 0) {
 		requestCache.set(cacheKey, promise);
 		
-		promise.then(data => {
+		promise.then((data: any) => {
 			if (data && data.status && data.status >= 400) {
 				requestCache.delete(cacheKey);
 			} else if (isScryfall && data && !data.error) {
@@ -488,7 +488,7 @@ export async function translateCardOllama(
 		
 		if (!response.ok) return null;
 		
-		const json = await response.json();
+		const json = await response.json() as any;
 		const result = JSON.parse(json.response) as OllamaTranslationResult;
 		
 		console.log(`✅ [Ollama] Tradução concluída para: "${name_en}"`, result);
@@ -687,7 +687,8 @@ export async function fetchCardsCollection(identifiers: any[]): Promise<any[]> {
 export async function fetchCardsBulk(
 	names: string[], 
 	lang = "en", 
-	onProgress?: (current: number, total: number, cardName: string, step: string) => void
+	onProgress?: (current: number, total: number, cardName: string, step: string) => void,
+	autoTranslate = true
 ): Promise<Card[]> {
 	const chunks = [];
 	for (let i = 0; i < names.length; i += 75) {
@@ -782,7 +783,7 @@ export async function fetchCardsBulk(
 			if (!scryfallCard || scryfallCard.object === "error") {
 				try {
 					if (onProgress) onProgress(processedCount, names.length, name, "Busca profunda...");
-					const card = await fetchCard(name, lang);
+					const card = await fetchCard(name, lang, 0, autoTranslate);
 					allCards.push(card);
 				} catch (e) {
 					console.error(`Failed to fetch card ${name}:`, e);
@@ -792,9 +793,9 @@ export async function fetchCardsBulk(
 
 			// Mapeia a carta básica
 			const card = mapScryfallToCard(scryfallCard, lang);
-			const needsTranslation = lang !== "en" && scryfallCard.lang !== targetLang;
+			const needsTranslation = autoTranslate && lang !== "en" && scryfallCard.lang !== targetLang;
 			
-			console.log(`🧐 [Bulk Check] "${card.title}": ScryfallLang="${scryfallCard.lang}", TargetLang="${targetLang}" -> NeedsTranslation=${needsTranslation}`);
+			console.log(`🧐 [Bulk Check] "${card.title}": ScryfallLang="${scryfallCard.lang}", TargetLang="${targetLang}", AutoTranslate=${autoTranslate} -> NeedsTranslation=${needsTranslation}`);
 			
 			card.translationSource = needsTranslation ? "ollama" : "scryfall";
 			
@@ -844,12 +845,13 @@ export async function fetchCard(
 	title: string,
 	lang = "en",
 	variant: number = 0,
+	autoTranslate = true
 ): Promise<Card> {
 	let frCards = await fetchCachedJson(
-		`https://api.scryfall.com/cards/search/?q=((!"${title}" lang:${lang}) or ("${title}" t:token)) order:released direction:asc`,
+		`https://api.scryfall.com/cards/search/?q=((!"${encodeURIComponent(title)}" lang:${lang}) or ("${encodeURIComponent(title)}" t:token)) order:released direction:asc`,
 	);
 	let enCards = await fetchCachedJson(
-		`https://api.scryfall.com/cards/search/?q=((!"${title}") or ("${title}" t:token)) order:released direction:asc`,
+		`https://api.scryfall.com/cards/search/?q=((!"${encodeURIComponent(title)}") or ("${encodeURIComponent(title)}" t:token)) order:released direction:asc`,
 	);
 
 	const enCardsStatus = enCards.status ?? 200;
@@ -910,7 +912,7 @@ export async function fetchCard(
 		card.verso.totalVariants = variants.length;
 	}
 
-	const needsTranslation = lang !== "en" && (
+	const needsTranslation = autoTranslate && lang !== "en" && (
 		frCardsStatus === 404 ||
 		fr["lang"] !== targetLang
 	);
@@ -972,7 +974,7 @@ export async function fetchCard(
 	// Seleciona a variante escolhida pelo usuário
 	let selectedVariant: Partial<Card> = variants.length > 0 ? (variants[variant % variants.length] ?? {}) : {};
 
-	if (lang !== "en" && selectedVariant.typeText) {
+	if (autoTranslate && lang !== "en" && selectedVariant.typeText) {
 		const variantTrans = await translateCardOllama(card.originalName, selectedVariant.typeText, selectedVariant.oracleText ?? "", selectedVariant.flavorText ?? "", targetLang);
 		
 		if (variantTrans) {
@@ -1006,7 +1008,7 @@ export async function fetchCard(
 
 export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 	const response = await fetchCachedJson(
-		`https://api.scryfall.com/cards/search/?q=!"${title}" unique:art prefer:newest`,
+		`https://api.scryfall.com/cards/search/?q=!"${encodeURIComponent(title)}" unique:art prefer:newest`,
 	);
 
 	const variants = (response.data || [])
@@ -1062,7 +1064,7 @@ export async function fetchVariants(title: string): Promise<Partial<Card>[]> {
 
 export async function fetchCardType(name: string): Promise<string> {
 	const response = await fetchCachedJson(
-		`https://api.scryfall.com/cards/search/?q=!"${name}"`,
+		`https://api.scryfall.com/cards/search/?q=!"${encodeURIComponent(name)}"`,
 	);
 
 	const [card] = response.data ?? [];

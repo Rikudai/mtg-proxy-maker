@@ -25,7 +25,8 @@ export type Card = {
 	titleFontSize?: number;
 	oracleFontSize?: number;
 	snapshotUrl?: string;
-	translationSource?: "scryfall" | "google";
+	snapshotError?: boolean;
+	translationSource?: "scryfall" | "google" | "ollama";
 } & (
 		| {
 			category: "Regular";

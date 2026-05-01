@@ -77,17 +77,27 @@ export default function App() {
 	const [isMTGOImporting, setIsMTGOImporting] = createSignal(false);
 	const [isOptimizing, setIsOptimizing] = createSignal(false);
 	const [isBulkOptimizing, setIsBulkOptimizing] = createSignal(false);
+	const [autoTranslate, setAutoTranslate] = createSignal(
+		localStorage.getItem("autoTranslate") !== "false",
+	);
 	const [primingDone, setPrimingDone] = createSignal(false);
 	const [isTabActive, setIsTabActive] = createSignal(true);
 	const [importProgress, setImportProgress] = createSignal<{ current: number, total: number, cardName: string, step?: string } | null>(null);
 	const [renderBatch, setRenderBatch] = createSignal<number[]>([]);
 	const [exportProgress, setExportProgress] = createSignal<{ current: number, total: number, cardName: string } | null>(null);
 	const [isExportingMode, setIsExportingMode] = createSignal(false);
+	const [currentlyExportingIndex, setCurrentlyExportingIndex] = createSignal<number | null>(null);
 	const [isPrintMode, setIsPrintMode] = createSignal(false);
 	const [isPreparingPrint, setIsPreparingPrint] = createSignal(false);
 	const [localEditingCard, setLocalEditingCard] = createSignal<Card | null>(null);
 	const [shouldCancelExport, setShouldCancelExport] = createSignal(false);
-	const isHighQualityMode = () => isPrintMode() || isExportingMode();
+	const isHighQualityMode = (index?: number) => {
+		if (isPrintMode()) return true;
+		if (isExportingMode()) {
+			return index === undefined || index === currentlyExportingIndex();
+		}
+		return false;
+	};
 
 	const [cardList, setCardList] = createResourceStore<Card[]>([], () =>
 		getCardList(),
@@ -167,15 +177,26 @@ export default function App() {
 		handleDragEnd();
 	};
 
+	let optimizationTimeout: any;
 	createEffect(() => {
-		if (cardList().value.length === 0 || isMTGOImporting() || !isTabActive()) return;
+		const list = cardList().value;
+		if (list.length === 0 || isMTGOImporting() || !isTabActive()) return;
 
-		const needsSnapshot = cardList().value
+		const needsSnapshot = list
 			.map((c, i) => ({ c, i }))
-			.filter((x) => !x.c.snapshotUrl && !x.c.isLoading);
+			.filter((x) => !x.c.snapshotUrl && !x.c.snapshotError && !x.c.isLoading);
 
 		if (needsSnapshot.length > 0) {
 			const batchIds = needsSnapshot.slice(0, 9).map((x) => x.i);
+
+			// Evita re-processar se o batch atual ainda está em andamento
+			const currentBatch = untrack(renderBatch);
+			const isStillProcessing = currentBatch.length > 0 && currentBatch.some(idx => {
+				const c = list[idx];
+				return c && !c.snapshotUrl && !c.snapshotError && !c.isLoading;
+			});
+
+			if (isStillProcessing) return;
 
 			// Priming phase: scroll to bottom once per bulk operation
 			if (isBulkOptimizing() && !primingDone()) {
@@ -196,10 +217,12 @@ export default function App() {
 				sheetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			}
 			
-			// Delay slightly longer to allow scroll and content-visibility to render fully
-			setTimeout(() => {
+			clearTimeout(optimizationTimeout);
+			optimizationTimeout = setTimeout(() => {
 				if (isTabActive()) {
-					setRenderBatch(batchIds);
+					batch(() => {
+						setRenderBatch(batchIds);
+					});
 				}
 			}, 1000);
 		} else {
@@ -207,6 +230,7 @@ export default function App() {
 			setIsBulkOptimizing(false);
 			setPrimingDone(false);
 			setRenderBatch([]);
+			clearTimeout(optimizationTimeout);
 		}
 	});
 
@@ -225,7 +249,7 @@ export default function App() {
 		}));
 
 		try {
-			const fetchedCard = await fetchCard(name, language(), variant);
+			const fetchedCard = await fetchCard(name, language(), variant, autoTranslate());
 			setCardList(produce((list: Card[]) => {
 				const idx = list.findIndex(c => c.set === placeholderId);
 				if (idx !== -1) list.splice(idx, 1, fetchedCard);
@@ -256,7 +280,7 @@ export default function App() {
 				cardName,
 				step
 			}));
-		});
+		}, autoTranslate());
 
 		// Cria um mapa para busca rápida
 		const normalizeName = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -299,7 +323,7 @@ export default function App() {
 						// Para cópias adicionais, podemos reutilizar o baseCard se não quisermos variantes diferentes,
 						// ou pedir a variante específica se o app suportar artes diferentes por cópia no import.
 						// Mantendo a compatibilidade com a lógica original:
-						const variantCard = await fetchCard(item.name, language(), i);
+						const variantCard = await fetchCard(item.name, language(), i, autoTranslate());
 						successes.push(variantCard);
 					}
 				} catch (e) {
@@ -325,7 +349,7 @@ export default function App() {
 					const parsed = JSON.parse(saved);
 					if (Array.isArray(parsed) && parsed.length > 0) {
 						console.log("♻️ [Session] Restaurando sessão anterior...");
-						return parsed;
+						return parsed as Card[];
 					}
 				} catch (e) {
 					console.error("Erro ao restaurar sessão:", e);
@@ -348,6 +372,7 @@ export default function App() {
 	createEffect(function syncWithLocalStorage() {
 		localStorage.setItem("language", language());
 		localStorage.setItem("printVersos", printVersos() ? "true" : "false");
+		localStorage.setItem("autoTranslate", autoTranslate() ? "true" : "false");
 	});
 
 	onMount(() => {
@@ -387,60 +412,114 @@ export default function App() {
 	async function extractZip() {
 		try {
 			const zip = new JSZip();
-			const elements = document.querySelectorAll('.card-export-target');
+			const elements = Array.from(document.querySelectorAll('.card-export-target'));
 			if (elements.length === 0) {
 				toast.error("Nenhuma carta no painel para exportar.");
 				return;
 			}
 
+			console.log(`🚀 Iniciando exportação de ${elements.length} cartas...`);
 			setIsExportingMode(true);
-			setExportProgress({ current: 0, total: elements.length, cardName: "Preparando exportação de alta fidelidade..." });
 			setShouldCancelExport(false);
+			setExportProgress({ current: 0, total: elements.length, cardName: "Iniciando renderização de alta fidelidade..." });
+			
+			// Give the browser a moment to enter exporting mode and start re-rendering
+			await new Promise(r => setTimeout(r, 1500));
+
 			const nameCounts: Record<string, number> = {};
+			
 			for (let i = 0; i < elements.length; i++) {
-				if (shouldCancelExport()) {
-					console.log("🛑 Exportação cancelada pelo usuário.");
-					break;
-				}
 				const node = elements[i] as HTMLElement;
 				const baseName = node.dataset.name || "Card";
+				console.log(`📦 [${i+1}/${elements.length}] Processando: ${baseName}`);
+
+				// Frequent check for cancellation
+				if (shouldCancelExport()) {
+					console.log("🛑 Exportação interrompida pelo usuário.");
+					break;
+				}
+
 				setExportProgress({ current: i + 1, total: elements.length, cardName: baseName });
+				setCurrentlyExportingIndex(i);
 
-				// Wait for high-res render to be ready (fonts might need to recalculate)
-				await new Promise(r => setTimeout(r, 600)); 
-				await document.fonts.ready;
+				try {
+					// Yield to event loop to allow Cancel button to be processed
+					console.log(`  - Aguardando event loop...`);
+					await new Promise(r => setTimeout(r, 150));
+					if (shouldCancelExport()) break;
 
-				// Ensure all images (like mana symbols) inside the node are fully loaded
-				const images = Array.from(node.querySelectorAll('img'));
-				await Promise.all(images.map(img => {
-					if (img.complete) return Promise.resolve();
-					return new Promise(resolve => {
-						img.onload = resolve;
-						img.onerror = resolve;
-					});
-				}));
+					// Wait for fonts and layout to settle for THIS specific card
+					console.log(`  - Aguardando fontes...`);
+					await Promise.race([
+						document.fonts.ready,
+						new Promise(r => setTimeout(r, 2000))
+					]);
 
-				const blob = await toPng(node, { pixelRatio: 4, cacheBust: true });
-				const base64Data = blob.replace(/^data:image\/png;base64,/, "");
+					// Ensure all images are loaded with a timeout
+					const images = Array.from(node.querySelectorAll('img'));
+					console.log(`  - Verificando ${images.length} imagens...`);
+					await Promise.race([
+						Promise.all(images.map((img, imgIdx) => {
+							if (img.complete) return Promise.resolve();
+							return new Promise(resolve => {
+								img.onload = () => { console.log(`    - Imagem ${imgIdx} carregada`); resolve(null); };
+								img.onerror = () => { console.warn(`    - Erro na imagem ${imgIdx}`); resolve(null); };
+							});
+						})),
+						new Promise(r => setTimeout(() => { console.warn("  - Timeout ao carregar imagens, prosseguindo mesmo assim..."); r(null); }, 5000))
+					]);
 
-				nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
-				const uniqueName = nameCounts[baseName] === 1 ? baseName : `${baseName} ${String(nameCounts[baseName] - 1).padStart(2, '0')}`;
-				const safeName = uniqueName.replace(/[<>:"/\\|?*]+/g, '_');
+					console.log(`  - Gerando snapshot (toPng) em 8x (ULTRA QUALIDADE)...`);
+					const startTime = Date.now();
+					const blob = await Promise.race([
+						toPng(node, { 
+							pixelRatio: 8, 
+							cacheBust: true,
+							skipFonts: false,
+							style: {
+								transform: 'scale(1)',
+								transformOrigin: 'top left'
+							}
+						}),
+						new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Timeout Snapshot 8x")), 60000))
+					]);
+					console.log(`  - Snapshot concluído em ${Date.now() - startTime}ms`);
+					
+					const base64Data = blob.replace(/^data:image\/png;base64,/, "");
+					nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
+					const uniqueName = nameCounts[baseName] === 1 ? baseName : `${baseName} ${String(nameCounts[baseName] - 1).padStart(2, '0')}`;
+					const safeName = uniqueName.replace(/[<>:"/\\|?*]+/g, '_');
 
-				zip.file(`${safeName}.png`, base64Data, { base64: true });
+					zip.file(`${safeName}.png`, base64Data, { base64: true });
+					console.log(`  - Adicionado ao ZIP: ${safeName}.png`);
+					
+					// Small breather after each card
+					await new Promise(r => setTimeout(r, 250));
+				} catch (e) {
+					console.error(`❌ Falha ao exportar "${baseName}":`, e);
+				}
 			}
 
-			setExportProgress({ current: elements.length, total: elements.length, cardName: "Comprimindo arquivo ZIP..." });
-			const content = await zip.generateAsync({ type: 'blob' });
-			saveAs(content, "mtg-proxies-high-res.zip");
+			if (!shouldCancelExport()) {
+				console.log(`🗜️ Comprimindo ZIP final...`);
+				setExportProgress({ current: elements.length, total: elements.length, cardName: "Comprimindo arquivo ZIP..." });
+				const content = await zip.generateAsync({ type: 'blob' });
+				saveAs(content, "mtg-proxies-high-res.zip");
+				console.log(`✅ Exportação finalizada com sucesso!`);
+				toast.success("Download do pacote ZIP concluído!");
+			} else {
+				toast.warning("Exportação cancelada.");
+			}
+
 			setExportProgress(null);
 			setIsExportingMode(false);
-			toast.success("Download do pacote ZIP concluído!");
+			setCurrentlyExportingIndex(null);
 		} catch (error) {
 			console.error("Failed to generate zip", error);
 			setExportProgress(null);
 			setIsExportingMode(false);
-			toast.error("Desculpe, ocorreu um erro ao gerar o arquivo ZIP.");
+			setCurrentlyExportingIndex(null);
+			toast.error("Desculpe, ocorreu um erro crítico ao gerar o arquivo ZIP.");
 		}
 	}
 
@@ -460,6 +539,7 @@ export default function App() {
 					onClearList={() => { setCardList([]); setSelectedCardIndex(null); }}
 					language={language()} setLanguage={setLanguage}
 					printVersos={printVersos()} setPrintVersos={setPrintVersos}
+					autoTranslate={autoTranslate()} setAutoTranslate={setAutoTranslate}
 					onAddCard={fetchAndAddCard}
 					isMTGOImporting={isMTGOImporting()}
 					onDownloadZip={extractZip}
@@ -540,7 +620,7 @@ export default function App() {
 																onClick={() => handleOpenInspector(globalIndex())}
 																selected={globalIndex() == selectedCardIndex()}
 																shouldRender={renderBatch().includes(globalIndex())}
-																isHighQuality={isHighQualityMode()}
+																isHighQuality={isHighQualityMode(globalIndex())}
 																onUpdate={(updates) => {
 																	setCardList(globalIndex(), produce((prev) => {
 																		Object.assign(prev, updates);
@@ -609,6 +689,12 @@ export default function App() {
 												<div class="px-2 py-1 bg-mtg-green/10 text-mtg-green border border-mtg-green/30 rounded flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold" title="Tradução Automática (Google)">
 													<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
 													Google Translate
+												</div>
+											</Show>
+											<Show when={card().translationSource === "ollama"}>
+												<div class="px-2 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold" title="Tradução via IA Local (Ollama)">
+													<svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="M2 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="M12 22v-4"/><path d="m19.07 19.07-2.83-2.83"/><path d="M22 12h-4"/><path d="m19.07 4.93-2.83 2.83"/><path d="M12 12v0"/></svg>
+													Ollama LLM
 												</div>
 											</Show>
 										</div>
@@ -803,7 +889,7 @@ export default function App() {
 
 			{/* Overlay de Otimização */}
 			<Show when={isOptimizing() && isBulkOptimizing() && !isMTGOImporting()}>
-				<div class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+				<div class="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-6 text-center">
 					<div class="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-10 shadow-2xl relative overflow-hidden">
 						<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-mtg-blue to-transparent"></div>
 						
@@ -842,7 +928,7 @@ export default function App() {
 							<div class="flex justify-between text-xs uppercase tracking-widest font-bold">
 								<span class="text-zinc-500">Progresso Geral</span>
 								<span class="text-mtg-gold">
-									{Math.round(((cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.isLoading).length) / cardList().value.length) * 100)}%
+									{Math.round(((cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.snapshotError && !c.isLoading).length) / cardList().value.length) * 100)}%
 								</span>
 							</div>
 							<div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
@@ -854,7 +940,7 @@ export default function App() {
 								></div>
 							</div>
 							<p class="text-[10px] text-zinc-600 mt-2 uppercase tracking-tighter">
-								{cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.isLoading).length} de {cardList().value.length} cartas prontas
+								{cardList().value.length - cardList().value.filter(c => !c.snapshotUrl && !c.snapshotError && !c.isLoading).length} de {cardList().value.length} cartas prontas
 							</p>
 						</div>
 					</div>

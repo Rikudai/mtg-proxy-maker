@@ -30,15 +30,20 @@ export default function ShrinkToFit(props: ShrinkToFitProps) {
 
 		// We use a small timeout to allow the browser to perform layout
 		// This is necessary because we need scrollHeight/clientWidth to be accurate
+		let iterations = 0;
+		const maxIterations = 50; // Safety limit
+
 		const checkAndShrink = () => {
 			if (!containerRef) return;
+			iterations++;
 
 			if (
+				iterations < maxIterations &&
 				(containerRef.scrollHeight > containerRef.clientHeight ||
 					containerRef.scrollWidth > containerRef.clientWidth) &&
 				currentSize > props.minFontSize
 			) {
-				currentSize -= 0.2;
+				currentSize -= 0.3; // Faster steps
 				setFontSize(currentSize);
 				requestAnimationFrame(checkAndShrink);
 			} else {

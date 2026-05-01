@@ -14,36 +14,37 @@
 
 @font-face {
 	font-family: "Beleren Small Caps";
-	src: url("/assets/fonts/Beleren Small Caps.ttf");
+	src: url("/assets/fonts/Beleren Small Caps.ttf?v=2");
 }
 
 @font-face {
 	font-family: "Beleren";
 	font-weight: bold;
-	src: url("/assets/fonts/Beleren-Bold.ttf");
+	src: url("/assets/fonts/Beleren-Bold.ttf?v=2");
 }
 
 @font-face {
 	font-family: "MPlantin";
-	src: url("/assets/fonts/Mplantin.woff") format("woff");
+	src: url("/assets/fonts/MPlantin.ttf?v=2") format("truetype"),
+	     url("/assets/fonts/Mplantin.woff?v=2") format("woff");
 }
 
 @font-face {
 	font-family: "MPlantin";
 	font-weight: bold;
-	src: url("/assets/fonts/MPlantin-Bold.ttf");
+	src: url("/assets/fonts/MPlantin-Bold.ttf?v=2") format("truetype");
 }
 
 @font-face {
 	font-family: "MPlantin";
 	font-style: italic;
-	src: url("/assets/fonts/MPlantin Italic.ttf");
+	src: url("/assets/fonts/MPlantin Italic.ttf?v=2") format("truetype");
 }
 
 @font-face {
 	font-family: "Prompt";
 	font-weight: 100;
-	src: url("/assets/fonts/Prompt-ExtraLight.ttf");
+	src: url("/assets/fonts/Prompt-ExtraLight.ttf?v=2");
 }
 
 html,
